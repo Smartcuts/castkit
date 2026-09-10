@@ -7,22 +7,33 @@ Built around [asciinema](https://asciinema.org), which records the terminal as
 text rather than pixels: a session is a small, greppable JSON file whose text
 stays selectable on playback.
 
-## Getting it
-
-Clone the repo and run the command once from the checkout. That first run is
-the install — it sets everything up and links `cast` onto your PATH, so every
-run after that is just `cast`.
+## Install
 
 ```bash
-git clone <url> ~/castkit
-~/castkit/cast list
+curl -fsSL https://raw.githubusercontent.com/Smartcuts/castkit/main/install.sh | sh
 ```
 
-There is nothing else to run: no `install` script, no `make`, no flags. The
-repo has no remote yet, so `<url>` does not exist — until it is pushed
-somewhere, a second machine has to get the directory another way.
+Then open a new shell. That is the whole install: it unpacks the kit into
+`~/.castkit/app` and runs it once, and that first run installs asciinema and
+`agg`, links `cast` onto your PATH and the `/cast` skill into `~/.claude`, and
+wraps your agents in your shell.
 
-Then open a new shell, so the wrappers load.
+**Re-run the same line to update.** The app directory is replaced; recordings,
+the enrolled set and the setup lock live beside it and are never touched. A
+failed download changes nothing — the new copy is unpacked alongside the old
+one and swapped only once it is complete.
+
+Needs `curl`, `tar` and `python3`, on macOS or Linux. Windows needs WSL.
+
+**The repo has to be reachable for that URL to work.** It has no remote yet,
+and a private GitHub repo will not serve `raw.githubusercontent.com` without a
+token — so this either wants a public repo or a different host.
+
+From a clone instead, which is the same thing without the download:
+
+```bash
+git clone <url> ~/castkit && ~/castkit/cast list
+```
 
 ## Sessions record themselves
 
@@ -267,9 +278,11 @@ config to point it somewhere of ours instead.
 | `~/.claude/skills/cast` | symlink to `skills/cast` in the checkout |
 | `~/.config/asciinema/config.toml` | written only if you had none |
 | your shell rc | one marked block of wrapper functions |
+| `~/.castkit/app/` | the kit itself, when installed with the one-liner |
 
-Both symlinks point into the checkout, so the repo is not disposable after
-install — move it and the next command repairs them.
+Both symlinks point at wherever the kit lives — `~/.castkit/app` from the
+installer, or your clone. Either way it is not disposable after install; move
+it and the next command repairs the links.
 
 ## Recordings contain everything
 
