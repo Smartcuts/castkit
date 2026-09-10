@@ -15,7 +15,8 @@ there is no command to remember and nothing to decide. Run one unrecorded with
 `command claude`.
 
 ```bash
-cast list                       # Datetime | Agent | Alias | Length | Shared
+cast list                       # browse recordings (table when piped)
+cast purge                      # delete recordings older than two months
 cast play <id|alias>            # play in the web player
 cast share <id|alias> [alias]   # stage a folder in ~/Downloads for sending
 cast rec [-t "title"]           # what the wrappers call; rarely typed by hand
@@ -109,16 +110,44 @@ Serves the vendored player on a free loopback port. What you get over
 
 ## `cast list`
 
+At a terminal it opens a browser built on stdlib `curses`, so it costs no
+dependency:
+
 ```
-Datetime          Agent   Alias              Length  Shared
-----------------  ------  -----------------  ------  ----------------
-2026-09-10 18:45  codex   —                  4:11    —
-2026-09-10 18:14  claude  fixing-the-parser   0:03    2026-09-10 18:16
+castkit — 5 recordings · 885.5 KB · claude 590.8 KB, codex 294.7 KB
+Datetime          Agent   Alias                Length  Shared
+2026-09-10 19:13  claude  —                    3:58    —
+2026-09-10 19:05  codex   castkit-walkthrough  2:01    2026-09-10 19:15
+↑↓ move · enter play · s share · d delete · q quit
 ```
 
-The Datetime it prints is a valid selector — `cast play "2026-09-10 18:45"`
-resolves, because ids and selectors are compared on their letters and digits
-alone. Aliases and share dates live in `~/.castkit/sessions/index.json`.
+`enter` plays the highlighted recording, `s` prompts for an alias and shares
+it, `d` deletes it after confirming. The list scrolls, so a short terminal
+still reaches everything.
+
+**Piped or run without a terminal it prints the table instead**, followed by
+the storage line. That fallback is not a flag — the `/cast` skill runs this
+from an agent, which has no terminal, and a TUI-only `list` would break that
+path entirely. `--plain` forces the table at a terminal too.
+
+The storage line totals the recordings and breaks them down by agent, and once
+the total passes 500 MB it points at `cast purge`.
+
+## `cast purge`
+
+Deletes recordings older than two months.
+
+```bash
+cast purge                 # older than 60 days
+cast purge --days 14
+cast purge --dry-run       # list them, delete nothing
+cast purge -y              # skip the confirmation
+```
+
+It prints what it is about to remove — with sizes, and marking anything that
+was shared — then asks before deleting. That prompt is the one place the kit
+deliberately does not decide for you: everything else it can redo, and this it
+cannot. Index entries for deleted recordings go with them.
 
 ## `cast share`
 

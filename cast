@@ -14,7 +14,7 @@ says nothing when they already are.
 """
 import argparse, glob, json, os, platform, shutil, socket, subprocess, sys, time
 import unicodedata
-from datetime import datetime
+from datetime import datetime, timedelta
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 CASTKIT_HOME = os.path.expanduser("~/.castkit")
@@ -27,6 +27,8 @@ CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME",
 BINDIR = os.path.expanduser("~/.local/bin")
 SKILL_LINK = os.path.expanduser("~/.claude/skills/cast")
 MARKER_KEY = "C-t"
+PURGE_AFTER_DAYS = 60          # "older than two months"
+STORAGE_WARN_BYTES = 500 * 1024 ** 2
 AGENTS = ("claude", "codex")
 
 # Recording wraps the process in a PTY, which swallows its stdout and stdin —
@@ -313,6 +315,77 @@ def cast_id(path):
     return os.path.splitext(os.path.basename(path))[0]
 
 
+
+def human(n):
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:,.1f} {unit}"
+        n /= 1024
+
+
+def storage():
+    """Total and per-agent bytes under CAST_DIR."""
+    per, total = {}, 0
+    for p in recordings():
+        n = os.path.getsize(p)
+        total += n
+        per[agent_of(p)] = per.get(agent_of(p), 0) + n
+    return total, per
+
+
+def storage_line():
+    casts = recordings()
+    total, per = storage()
+    parts = ", ".join(f"{a} {human(n)}" for a, n in sorted(per.items()))
+    line = f"{len(casts)} recording{'s'[:len(casts) ^ 1]} · {human(total)}"
+    if parts:
+        line += f" · {parts}"
+    if total >= STORAGE_WARN_BYTES:
+        line += (f"\n  over {human(STORAGE_WARN_BYTES)} — "
+                 f"`cast purge` drops anything older than {PURGE_AFTER_DAYS} days")
+    return line
+
+
+def collect_rows(limit=None):
+    """One pass over the recordings; the table and the TUI both render this."""
+    ix = load_index()
+    rows = []
+    for p in recordings()[:limit]:
+        meta = ix.get(cast_id(p), {})
+        rows.append({
+            "path": p,
+            "id": cast_id(p),
+            "when": recorded_at(p),
+            "agent": agent_of(p),
+            "alias": meta.get("alias") or "—",
+            "length": hhmm(duration(p)),
+            "shared": meta.get("shared_at", "—"),
+            "size": os.path.getsize(p),
+        })
+    return rows
+
+
+def prune_index(ids):
+    ix = load_index()
+    if any(i in ix for i in ids):
+        for i in ids:
+            ix.pop(i, None)
+        save_index(ix)
+
+
+HEAD = ("Datetime", "Agent", "Alias", "Length", "Shared")
+
+
+def as_cells(r):
+    return (r["when"].strftime("%Y-%m-%d %H:%M"), r["agent"],
+            r["alias"], r["length"], r["shared"])
+
+
+def widths(rows):
+    cells = [as_cells(r) for r in rows] + [HEAD]
+    return [max(len(c[i]) for c in cells) for i in range(len(HEAD))]
+
+
 def agent_of(path):
     """Recordings are named <date>-<time>-<agent>.cast."""
     parts = cast_id(path).split("-", 2)
@@ -437,7 +510,10 @@ def _q(s):
 
 def cmd_play(a):
     ensure()
-    path = resolve(a.selector)
+    play_path(resolve(a.selector))
+
+
+def play_path(path):
     link_path = os.path.join(HERE, "current.cast")
     if os.path.islink(link_path) or os.path.exists(link_path):
         os.unlink(link_path)
@@ -472,35 +548,114 @@ def cmd_play(a):
 
 def cmd_list(a):
     ensure()
-    casts = recordings()
-    if not casts:
+    rows = collect_rows(a.limit)
+    if not rows:
         print(f"no recordings in {CAST_DIR} — `cast rec` makes one")
         return
-    ix = load_index()
-    rows = []
-    for p in casts[:a.limit]:
-        meta = ix.get(cast_id(p), {})
-        rows.append((recorded_at(p).strftime("%Y-%m-%d %H:%M"),
-                     agent_of(p),
-                     meta.get("alias") or "—",
-                     hhmm(duration(p)),
-                     meta.get("shared_at", "—")))
-    head = ("Datetime", "Agent", "Alias", "Length", "Shared")
-    width = [max(len(r[i]) for r in rows + [head]) for i in range(len(head))]
-    line = lambda r: "  ".join(v.ljust(width[i]) for i, v in enumerate(r)).rstrip()
-    print(line(head))
-    print("  ".join("-" * w for w in width))
+
+    # The skill runs this from an agent, which has no terminal. A TUI-only
+    # list would break that path, so the table is the fallback, not a flag.
+    if sys.stdout.isatty() and sys.stdin.isatty() and not a.plain:
+        run_tui(rows)
+        return
+
+    w = widths(rows)
+    line = lambda c: "  ".join(v.ljust(w[i]) for i, v in enumerate(c)).rstrip()
+    print(line(HEAD))
+    print("  ".join("-" * n for n in w))
     for r in rows:
-        print(line(r))
+        print(line(as_cells(r)))
+    print(f"\n{storage_line()}")
+
+
+def run_tui(rows):
+    """Browse recordings: move, play, share, delete. curses is stdlib, so
+    this costs no dependency."""
+    import curses
+
+    def draw(stdscr, sel, msg):
+        stdscr.erase()
+        h, wd = stdscr.getmaxyx()
+        w = widths(rows)
+        head = "  ".join(v.ljust(w[i]) for i, v in enumerate(HEAD))
+        stdscr.addnstr(0, 0, f"castkit — {storage_line().splitlines()[0]}",
+                       wd - 1, curses.A_BOLD)
+        stdscr.addnstr(1, 0, head, wd - 1, curses.A_DIM)
+        view = max(1, h - 4)
+        top = min(max(0, sel - view + 1), max(0, len(rows) - view))
+        for n, r in enumerate(rows[top:top + view]):
+            cells = "  ".join(v.ljust(w[i]) for i, v in enumerate(as_cells(r)))
+            stdscr.addnstr(2 + n, 0, cells, wd - 1,
+                           curses.A_REVERSE if top + n == sel else curses.A_NORMAL)
+        stdscr.addnstr(h - 1, 0,
+                       msg or "↑↓ move · enter play · s share · d delete · q quit",
+                       wd - 1, curses.A_DIM)
+        stdscr.refresh()
+
+    def prompt(stdscr, question):
+        h, wd = stdscr.getmaxyx()
+        stdscr.addnstr(h - 1, 0, " " * (wd - 1), wd - 1)
+        stdscr.addnstr(h - 1, 0, question, wd - 1)
+        stdscr.refresh()
+        curses.echo()
+        try:
+            return stdscr.getstr(h - 1, len(question), 60).decode().strip()
+        finally:
+            curses.noecho()
+
+    def loop(stdscr):
+        curses.curs_set(0)
+        sel, msg = 0, ""
+        while True:
+            draw(stdscr, sel, msg)
+            msg = ""
+            k = stdscr.getch()
+            if k in (ord("q"), 27):
+                return None
+            if k in (curses.KEY_DOWN, ord("j")):
+                sel = min(sel + 1, len(rows) - 1)
+            elif k in (curses.KEY_UP, ord("k")):
+                sel = max(sel - 1, 0)
+            elif k in (curses.KEY_ENTER, 10, 13):
+                return ("play", rows[sel])
+            elif k == ord("s"):
+                alias = prompt(stdscr, "alias: ")
+                if alias:
+                    return ("share", rows[sel], alias)
+                msg = "cancelled"
+            elif k == ord("d"):
+                r = rows[sel]
+                if prompt(stdscr, f"delete {r['id']}? [y/N] ").lower() == "y":
+                    os.remove(r["path"])
+                    prune_index([r["id"]])
+                    rows.pop(sel)
+                    if not rows:
+                        return None
+                    sel = min(sel, len(rows) - 1)
+                    msg = "deleted"
+                else:
+                    msg = "kept"
+
+    action = curses.wrapper(loop)
+    # Outside curses now: play needs the terminal back, share prints normally.
+    if not action:
+        return
+    if action[0] == "play":
+        play_path(action[1]["path"])
+    elif action[0] == "share":
+        share_path(action[1]["path"], action[2])
 
 
 def cmd_share(a):
     ensure()
-    path = resolve(a.selector)
+    share_path(resolve(a.selector), a.alias)
+
+
+def share_path(path, requested_alias=None):
     cid = cast_id(path)
     ix = load_index()
 
-    alias = a.alias or ix.get(cid, {}).get("alias")
+    alias = requested_alias or ix.get(cid, {}).get("alias")
     if not alias:
         hdr, _ = header_and_events(path)
         alias = hdr.get("title") or "-".join(cid.split("-")[2:]) or cid
@@ -536,6 +691,41 @@ def cmd_share(a):
     print("\nboth hold everything that was on screen, in cleartext.")
 
 
+
+def cmd_purge(a):
+    ensure()
+    cutoff = datetime.now() - timedelta(days=a.days)
+    rows = [r for r in collect_rows() if r["when"] < cutoff]
+    if not rows:
+        print(f"nothing older than {a.days} days in {CAST_DIR}")
+        print(f"  {storage_line()}")
+        return
+
+    freed = sum(r["size"] for r in rows)
+    print(f"{len(rows)} recording{'s'[:len(rows) ^ 1]} older than "
+          f"{a.days} days · {human(freed)}")
+    for r in rows:
+        mark = f"  shared as {r['alias']}" if r["alias"] != "—" else ""
+        print(f"  {r['when']:%Y-%m-%d %H:%M}  {r['agent']:7} "
+              f"{human(r['size']):>10}{mark}")
+
+    if a.dry_run:
+        print("\ndry run — nothing deleted")
+        return
+    # Deleting recordings is not reversible, so it is confirmed even though
+    # the rest of the kit decides everything for you.
+    if not a.yes:
+        if input(f"\ndelete these {len(rows)}? [y/N] ").strip().lower() != "y":
+            print("kept")
+            return
+
+    for r in rows:
+        os.remove(r["path"])
+    prune_index([r["id"] for r in rows])
+    print(f"\ndeleted {len(rows)}, freed {human(freed)}")
+    print(f"  {storage_line()}")
+
+
 # ------------------------------------------------------------------ entry
 
 def main():
@@ -553,9 +743,18 @@ def main():
     p.add_argument("selector", help="recording id, alias, or path")
     p.set_defaults(fn=cmd_play)
 
-    p = sub.add_parser("list", help="recent recordings")
+    p = sub.add_parser("list", help="browse recordings")
     p.add_argument("-n", "--limit", type=int, default=20)
+    p.add_argument("--plain", action="store_true",
+                   help="print the table instead of opening the browser")
     p.set_defaults(fn=cmd_list)
+
+    p = sub.add_parser("purge", help="delete old recordings")
+    p.add_argument("--days", type=int, default=PURGE_AFTER_DAYS,
+                   help=f"older than this many days (default {PURGE_AFTER_DAYS})")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("-y", "--yes", action="store_true", help="skip the prompt")
+    p.set_defaults(fn=cmd_purge)
 
     p = sub.add_parser("share", help="attach an alias and stage for sending")
     p.add_argument("selector", help="recording id, alias, or path")

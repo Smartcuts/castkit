@@ -16,7 +16,8 @@ allowed-tools:
 ```bash
 cast rec [-t "title"]          record a session (the shell wrappers call this)
 cast play <id|alias>           play in the web player — a selector is required
-cast list                      Datetime | Agent | Alias | Length | Shared
+cast list                      recordings; a table when you run it
+cast purge                     delete recordings older than two months
 cast share <id|alias> [alias]  attach an alias, stage a folder in ~/Downloads
 ```
 
@@ -75,7 +76,10 @@ those was not recorded, that is why — it is protection, not a gap.
 
 ## Listing
 
-`cast list` prints `Datetime | Agent | Alias | Length | Shared`. Run it
+`cast list` opens a browser at a terminal and prints a plain table
+`Datetime | Agent | Alias | Length | Shared` everywhere else — which is what
+you will get, since you have no terminal. It ends with a storage summary. Run
+it
 whenever the user refers to a recording vaguely — "the one from this morning",
 "the codex one" — and show them the table rather than guessing which they mean.
 
@@ -114,6 +118,16 @@ recording id. So a title typed naturally is always safe to hand over.
 
 Say once, plainly, that both files hold everything that was on screen in
 cleartext, so they should be read before being sent.
+
+## Purging
+
+`cast purge` deletes recordings older than 60 days, `--days N` for another
+window. **Only run it when the user asks.** Show `cast purge --dry-run` first
+so they see what would go, and let them confirm — do not pass `-y` on their
+behalf. Deleting recordings is the one irreversible thing here.
+
+If the storage line in `cast list` is warning about size, mention it; do not
+act on it.
 
 ## Recordings live in `~/.castkit/sessions`
 
