@@ -55,7 +55,8 @@ Wraps a command and records it, printing how to stop before it starts:
 `ctrl+d` ends, `ctrl+\` pauses capture (before you type a password),
 `ctrl+t` drops a marker.
 
-Recordings land in `~/casts` as `<date>-<time>-<agent>.cast`, so the id says
+Recordings land in `~/.castkit/sessions` as `<date>-<time>-<agent>.cast`,
+so the id says
 whether claude or codex produced it. Idle gaps are capped at two seconds,
 which matters more than it sounds: an agent session is mostly waiting on a
 model, so uncapped the file is mostly dead air. `CAST_DIR` moves where they
@@ -109,7 +110,7 @@ Datetime          Agent   Alias              Length  Shared
 
 The Datetime it prints is a valid selector — `cast play "2026-09-10 18:45"`
 resolves, because ids and selectors are compared on their letters and digits
-alone. Aliases and share dates live in `~/casts/index.json`.
+alone. Aliases and share dates live in `~/.castkit/sessions/index.json`.
 
 ## `cast share`
 

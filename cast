@@ -17,7 +17,9 @@ import unicodedata
 from datetime import datetime
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-CAST_DIR = os.environ.get("CAST_DIR", os.path.expanduser("~/casts"))
+CASTKIT_HOME = os.path.expanduser("~/.castkit")
+CAST_DIR = os.environ.get("CAST_DIR", os.path.join(CASTKIT_HOME, "sessions"))
+# Beside the recordings, not above them, so CAST_DIR moves the whole set.
 INDEX = os.path.join(CAST_DIR, "index.json")
 CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME",
                                      os.path.expanduser("~/.config")),
@@ -42,7 +44,6 @@ NON_SESSION_SUBCOMMANDS = {
               "remote-control", "sandbox", "unarchive", "update"},
 }
 SETUP_VERSION = 1
-CASTKIT_HOME = os.path.expanduser("~/.castkit")
 LOCK = os.path.join(CASTKIT_HOME, "installed")
 BEGIN = "# >>> castkit >>>"
 END = "# <<< castkit <<<"

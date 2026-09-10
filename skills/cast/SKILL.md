@@ -115,8 +115,8 @@ recording id. So a title typed naturally is always safe to hand over.
 Say once, plainly, that both files hold everything that was on screen in
 cleartext, so they should be read before being sent.
 
-## Recordings live in `~/casts`
+## Recordings live in `~/.castkit/sessions`
 
 Named `<date>-<time>-<agent>.cast` — the agent is `claude` or `codex`, so the
 id says which produced it. Aliases and share dates live in
-`~/casts/index.json`. `CAST_DIR` moves the lot.
+`~/.castkit/sessions/index.json`. `CAST_DIR` moves the lot.
