@@ -13,7 +13,7 @@ text stays selectable on playback.
 curl -fsSL https://raw.githubusercontent.com/Smartcuts/castkit/main/install.sh | sh
 
 # Checks installation
-cast -h
+cast version
 ```
 
 The installation script does three things:
@@ -24,9 +24,16 @@ The installation script does three things:
 3. Enrolls your local coding agents in (default codex and claude
    code).
 
+## Sessions record themselves
+
 The third step, enrollment, wraps coding agent binary with our own
 tooling so that every coding session are automatically recorded from
-now on. You can also manually enroll a coding agent:
+now on. Every session started from a fresh shell is captured from its
+first prompt — there is no command to remember and nothing to
+decide. Those two are only the default; `cast enroll` records any
+other CLI, and `command claude` runs one unrecorded.
+
+You can also manually enroll a coding agent:
 
 ```
 cast enroll codex
@@ -39,190 +46,28 @@ its future sessions:
 cast disenroll codex
 ```
 
-## Sessions record themselves
+## Using the skill
 
-Setup wraps `claude` and `codex` in your shell so both run under `cast rec`.
-Every session started from a fresh shell is captured from its first prompt —
-there is no command to remember and nothing to decide. Those two are only the
-default; `cast enroll` records any other CLI, and `command claude` runs one
-unrecorded.
+This castkit ships binary and its helper skill. You can use the skill
+as a more intuitive interface to all the capability. As an example, I
+found it easier to export by:
 
-```bash
-cast list                       # browse recordings (table when piped)
-cast play <id|alias>            # play in the web player
-cast share <id|alias> [alias]   # stage a folder in ~/Downloads for sending
-cast purge                      # delete recordings older than two months
-cast enroll <command>           # record another CLI's sessions too
-cast disenroll <command>        # stop recording one
-cast version                    # versions and paths, for a bug report
-cast rec [-t "title"]           # what the wrappers call; rarely typed by hand
+```plain
+/cast share the codex session at 5:12pm.
 ```
 
-They are subcommands rather than separate binaries because bare `play` and
-`list` would collide with things already on PATH.
+Instead of being specific about the exact name of the session.
 
-## Setup runs once, on the first command
-
-The first `cast` anything — or the first use of the `/cast` skill — installs
-asciinema and `agg`, vendors the player from npm, writes the marker-key
-config, links `cast` into `~/.local/bin` and the `/cast` skill into
-`~/.claude/skills`, and wraps the enrolled commands in your shell. Then it
-writes `~/.castkit/installed` and never does any of it again: later runs cost
-one small file read.
-
-Expect the first run to take a minute or two if asciinema and `agg` are not
-already present — both are compiled tools, and on a machine without Homebrew
-`cargo` builds them from source. Every run after that is instant.
-
-**The lock is written last.** If any step fails there is no lock, so the next
-command retries the whole thing rather than leaving you half-installed. It
-also records where the kit lives, so moving or re-cloning the repo re-runs
-setup and repairs the symlinks instead of silently leaving them dangling. To
-force a re-run, delete the file.
-
-**`SETUP_VERSION` is the only thing that invalidates a lock, and it is
-manual.** A moved kit is caught automatically, because the lock records where
-the kit lives. Nothing else is: if you change _what setup does_ — add a tool to
-install, rename a config key, change where a symlink points — every existing
-install keeps taking the fast path and never picks the change up. Bump
-`SETUP_VERSION` in the same commit that changes a setup step, or the change
-only reaches machines that have never run castkit.
-
-**Installing is platform-specific.** Homebrew where it exists, otherwise
-`cargo` — slower, since it compiles, but the route that reliably gets
-asciinema 3.x, where distro packages are often a major version behind. Native
-Windows has no build; use WSL.
-
-**Wrapping follows your login shell**, read from `$SHELL`: `~/.zshrc` for zsh,
-fish's own `function ... end` syntax in `~/.config/fish/config.fish`, and for
-bash `~/.bash_profile` on macOS — where a login shell never reads `~/.bashrc`,
-so a wrapper written there would never load. An unrecognised shell is reported
-with the snippet to add by hand, and does not block the rest of setup.
-
-## `cast enroll` / `cast disenroll`
-
-Which commands get recorded is configuration, not something baked in.
-
-```bash
-cast enroll                # what is recorded now
-cast enroll kimicode       # record its sessions too
-cast disenroll codex       # stop; existing recordings are kept
-```
-
-Enrolling rewrites the wrapper block in your shell rc and takes effect in the
-next shell. A command that is not installed yet enrolls anyway — it starts
-recording once it appears on PATH, which is the usual case for something you
-are about to try.
-
-The set lives in `~/.castkit/agents.json`, defaulting to claude and codex. The
-name becomes a shell function in your rc file, so it is validated rather than
-trusted: letters, digits, underscore and hyphen only. `cast` cannot be
-enrolled — it would wrap the recorder in itself.
-
-A newly enrolled command has no list of non-interactive subcommands, so only
-the TTY test protects it: piped and redirected runs still pass through
-untouched, but something like its own `exec` subcommand would be recorded
-until it is added to `NON_SESSION_SUBCOMMANDS`.
-
-## `cast rec`
-
-Wraps a command and records it, printing how to stop before it starts:
-`ctrl+d` ends, `ctrl+\` pauses capture (before you type a password),
-`ctrl+t` drops a marker.
-
-Recordings land in `~/.castkit/sessions` as `<date>-<time>-<agent>.cast`,
-so the id says
-whether claude or codex produced it. Idle gaps are capped at two seconds,
-which matters more than it sounds: an agent session is mostly waiting on a
-model, so uncapped the file is mostly dead air. `CAST_DIR` moves where they
-land.
-
-**Recording has to wrap the agent from outside** — nothing running inside a
-session can record that session, because by then the TUI is live and nothing
-wraps it in a PTY. That is precisely why the wrappers exist: they do it before
-the agent starts, so it is never something anyone has to invoke.
-
-Three things keep the wrapping safe.
-
-**Only interactive sessions are recorded.** Recording wraps a process in a PTY
-and captures its stdout rather than passing it through, so a recorded
-`claude -p "..." | jq` hands jq asciinema's diagnostics where the answer
-should be, and swallows stdin on the way. So `cast rec` hands off untouched
-unless stdin and stdout are both TTYs and the invocation looks like a session:
-not `-p`/`--print`, not `codex exec`, not `--version`, not a management
-subcommand. An unrecognised word is treated as a prompt or a flag's value and
-does record — erring that way costs a stray recording, erring the other way
-corrupts someone's output.
-
-**It cannot recurse.** `cast rec` resolves the agent to its absolute path via
-PATH, which never sees a shell function.
-
-**It refuses to nest.** Inside a session that is already recorded, it runs the
-agent directly rather than starting a second capture.
-
-## `cast play`
-
-Takes a recording id, an alias, a printed datetime, or a path — a selector is
-required, since playing "whatever was most recent" is rarely what is meant. A
-leading fragment works when it is unambiguous, and an ambiguous one says so.
-
-Serves the vendored player on a free loopback port. What you get over
-`asciinema play`, which has none of it:
-
-- **speed** — `0.5×` `1×` `1.5×` `2×` `4×`, switchable mid-playback
-- **dead air** — cap idle gaps at 2s, toggled while watching
-- a progress bar you can click, `←`/`→` to seek, `0`–`9` to jump by percent,
-  `.` to step a frame while paused, `f` for fullscreen
-
-## `cast list`
-
-At a terminal it opens a browser built on stdlib `curses`, so it costs no
-dependency:
-
-```
-castkit — 5 recordings · 885.5 KB · claude 590.8 KB, codex 294.7 KB
-Datetime          Agent   Alias                Length  Shared
-2026-09-10 19:13  claude  —                    3:58    —
-2026-09-10 19:05  codex   castkit-walkthrough  2:01    2026-09-10 19:15
-↑↓ move · enter play · s share · d delete · q quit
-```
-
-`enter` plays the highlighted recording, `s` prompts for an alias and shares
-it, `d` deletes it after confirming. The list scrolls, so a short terminal
-still reaches everything.
-
-**Piped or run without a terminal it prints the table instead**, followed by
-the storage line. That fallback is not a flag — the `/cast` skill runs this
-from an agent, which has no terminal, and a TUI-only `list` would break that
-path entirely. `--plain` forces the table at a terminal too.
-
-The storage line totals the recordings and breaks them down by agent, and once
-the total passes 500 MB it points at `cast purge`.
-
-## `cast purge`
-
-Deletes recordings older than two months.
-
-```bash
-cast purge                 # older than 60 days
-cast purge --days 14
-cast purge --dry-run       # list them, delete nothing
-cast purge -y              # skip the confirmation
-```
-
-It prints what it is about to remove — with sizes, and marking anything that
-was shared — then asks before deleting. That prompt is the one place the kit
-deliberately does not decide for you: everything else it can redo, and this it
-cannot. Index entries for deleted recordings go with them.
-
-## `cast share`
+## Sharing recordings
 
 Attaches an alias to the recording and writes `~/Downloads/<alias>/`:
 
 - `<alias>.cast` — **the artifact.** Attach this. It is the native format,
   it is tiny, and anyone with asciinema can play it.
-- `<alias>.gif` — a preview, for pasting where an animation renders inline:
-  a PR description, an issue, a Slack message.
+- `<alias>.gif` — a **thumbnail**: a single still of the finished screen, for
+  pasting where an image renders inline — a PR description, an issue, a Slack
+  message. Around 50 KB regardless of how long the session ran, because its
+  size follows the terminal's dimensions rather than the recording's length.
 
 Pass the alias as ordinary text — `cast share 20260910-1814 "Fixing the
 parser"` writes `~/Downloads/fixing-the-parser/`. Accents fold to ASCII,
@@ -252,19 +97,146 @@ cast play <file>.cast
 Nothing is uploaded either way: the file goes over whatever you already use,
 and the player runs on their machine.
 
-## Why there is no asciinema-server here
+## Managing recordings
 
-Two different things share the name. **asciinema-player** is a static JS
-library — that is what `vendor/` holds, and it is all playback needs.
-**asciinema-server** is the sharing app: accounts, uploads, permalinks. Stand
-one up if you want those; nothing here requires it.
+Recordings land in `~/.castkit/sessions` as
+`<date>-<time>-<agent>.cast`, so the id says whether claude or codex
+produced it. Idle gaps are capped at two seconds, which matters more
+than it sounds: an agent session is mostly waiting on a model, so
+uncapped the file is mostly dead air. `CAST_DIR` moves where they
+land.
 
-The only thing that would send a recording off this machine is
-`asciinema upload`, which defaults to asciinema.org. Set `server.url` in the
-config to point it somewhere of ours instead.
+To list out all recordings, use the `list` subcommand:
 
-## Traps worth knowing
+```
+> cast list
 
+castkit — 10 recordings · 5.7 MB · claude 5.3 MB, codex 379.9 KB
+Datetime          Agent   Alias                Length  Shared
+2026-09-10 22:20  claude  —                    52:21   —
+2026-09-10 22:21  codex   —                    0:17    —
+2026-09-10 20:08  claude  claude               4:22    2026-09-10 20:11
+2026-09-10 19:38  claude  —                    0:36    —
+2026-09-10 19:38  codex   —                    0:15    —
+2026-09-10 19:13  claude  —                    3:58    —
+2026-09-10 19:06  claude  —                    2:15    —
+2026-09-10 19:05  codex   castkit-walkthrough  2:01    2026-09-10 20:07
+2026-09-10 18:54  codex   —                    0:00    —
+2026-09-10 18:52  codex   —                    0:18    —
+```
+
+Press <kbd>enter</kbd> plays the highlighted recording, <kbd>s</kbd>
+prompts for an alias and shares it, <kbd>d</kbd> deletes it after
+confirming. The list scrolls, so a short terminal still reaches
+everything.
+
+**Piped or run without a terminal it prints the table instead**, followed by
+the storage line. That fallback is not a flag — the `/cast` skill runs this
+from an agent, which has no terminal, and a TUI-only `list` would break that
+path entirely. `--plain` forces the table at a terminal too.
+
+You can deletes old recordings so that we don't have TBs of recordings.
+
+```bash
+cast purge                 # default, older than 60 days
+cast purge --days 14
+cast purge --dry-run       # list them, delete nothing
+cast purge -y              # skip the confirmation
+```
+
+It prints what it is about to remove — with sizes, and marking anything that
+was shared — then asks before deleting. That prompt is the one place the kit
+deliberately does not decide for you: everything else it can redo, and this it
+cannot. Index entries for deleted recordings go with them.
+
+## Subcommand
+
+| Subcommand                | Function                                  |
+| ------------------------- | ----------------------------------------- |
+| list                      | browse recordings (table when piped)      |
+| play <id\|alias>          | play in the web player                    |
+| share <id\|alias> [alias] | stage a folder in ~/Downloads for sending |
+| purge                     | delete recordings older than two months   |
+| rec [-t "title"]          | starts session recording                  |
+| enroll <command>          | record another CLI's sessions too         |
+| disenroll <command>       | stop recording one                        |
+| version                   | versions and paths, for a bug report      |
+
+### `cast rec`
+
+Initiates a recording in the current terminal session. To stop
+recording, `ctrl+d` and end the current terminal process; To pause,
+`ctrl+\`. This is helpful before you type a password; And use `ctrl+t`
+to drop a marker, which is useful for replays to quickly navigate back
+to it.
+
+### `cast play`
+
+Takes a recording id, an alias, a printed datetime, or a path — a selector is
+required, since playing "whatever was most recent" is rarely what is meant. A
+leading fragment works when it is unambiguous, and an ambiguous one says so.
+
+Serves the vendored player on a free loopback port. What you get over
+`asciinema play`, which has none of it:
+
+- **speed** — `0.5×` `1×` `1.5×` `2×` `4×`, switchable mid-playback
+- **dead air** — cap idle gaps at 2s, toggled while watching
+- a progress bar you can click, <kbd>←</kbd>/<kbd>→</kbd> to seek,
+  <kbd>0</kbd>–<kbd>9</kbd> to jump by percent, <kbd>.</kbd> to step a
+  frame while paused, <kbd>f</kbd> for fullscreen
+
+## Recordings contain everything
+
+A `.cast`, and the `.gif` rendered from it, hold every character that was on
+screen: keys, tokens printed in an error, the lot. Treat one like a document
+containing our source code, because it is one. Read it before sending it.
+
+## About wrapping (the enrollment)
+
+**Recording has to wrap the agent from outside** — nothing running inside a
+session can record that session, because by then the TUI is live and nothing
+wraps it in a PTY. That is precisely why the wrappers exist: they do it before
+the agent starts, so it is never something anyone has to invoke.
+
+Three things keep the wrapping safe.
+
+**Only interactive sessions are recorded.** Recording wraps a process in a PTY
+and captures its stdout rather than passing it through, so a recorded
+`claude -p "..." | jq` hands jq asciinema's diagnostics where the answer
+should be, and swallows stdin on the way. So `cast rec` hands off untouched
+unless stdin and stdout are both TTYs and the invocation looks like a session:
+not `-p`/`--print`, not `codex exec`, not `--version`, not a management
+subcommand. An unrecognised word is treated as a prompt or a flag's value and
+does record — erring that way costs a stray recording, erring the other way
+corrupts someone's output.
+
+**It cannot recurse.** `cast rec` resolves the agent to its absolute path via
+PATH, which never sees a shell function.
+
+**It refuses to nest.** Inside a session that is already recorded, it runs the
+agent directly rather than starting a second capture.
+
+## Development
+
+From a clone instead, which is the same thing without the download — the kit
+runs from wherever it lives:
+
+```bash
+git clone https://github.com/Smartcuts/castkit ~/castkit && ~/castkit/cast list
+```
+
+`CASTKIT_URL` overrides where the installer fetches from, and `CASTKIT_REF`
+picks a branch or tag.
+
+### Traps worth knowing
+
+- **A thumbnail of a terminal session is the last frame, not the first.** Two
+  wrong turns are worth remembering. Rendering the whole session gave a gif
+  many times the size of the recording it previewed — 980 KB against a 132 KB
+  cast. Trimming to the opening seconds fixed the size and produced a blank
+  image, because an agent session begins on an empty screen. What works is
+  keeping every event, which is what makes the terminal state correct, and
+  collapsing the timing so there is one frame left to draw.
 - **v3 event times are deltas, not absolutes.** The length of a recording is
   their sum. Taking the last or largest gives the longest single gap — for a
   six-second recording, 1.04s instead of 6.17s.
@@ -289,48 +261,6 @@ config to point it somewhere of ours instead.
 - **Flush before blocking.** `cast play` prints its URL then blocks on the
   server; without an explicit flush, a caller that backgrounds it sees nothing.
 
-## What it puts on your machine
-
-|                                   |                                                   |
-| --------------------------------- | ------------------------------------------------- |
-| `~/.castkit/sessions/`            | the recordings, and `index.json` holding aliases  |
-| `~/.castkit/installed`            | the setup lock — delete it to force a re-run      |
-| `~/.castkit/agents.json`          | which commands are enrolled                       |
-| `~/.local/bin/cast`               | symlink to the checkout                           |
-| `~/.claude/skills/cast`           | symlink to `skills/cast` in the checkout          |
-| `~/.config/asciinema/config.toml` | written only if you had none                      |
-| your shell rc                     | one marked block of wrapper functions             |
-| `~/.castkit/app/`                 | the kit itself, when installed with the one-liner |
-
-Both symlinks point at wherever the kit lives — `~/.castkit/app` from the
-installer, or your clone. Either way it is not disposable after install; move
-it and the next command repairs the links.
-
-## `cast version`
-
-```
-castkit    7374cb1 (checkout)
-kit        /Users/scott/Projects/smartcuts/castkit
-setup      version 3
-player     3.17.0
-asciinema  asciinema 3.2.1
-agg        agg 1.9.0
-python     3.11.6
-platform   Darwin arm64
-shell      zsh
-enrolled   claude, codex
-sessions   10 · 4.4 MB
-```
-
-The version is derived, never declared. In a checkout it is `git describe`; in
-an installed copy it is the commit `install.sh` recorded when it fetched the
-tarball, which a GitHub archive otherwise cannot tell you because it carries
-no `.git`. A hardcoded version constant would be one more thing to remember to
-bump, and a stale one is worse than none — the same trap `SETUP_VERSION` sets,
-which at least has the excuse of needing human judgement.
-
-`cast --version` prints just the first line.
-
 ## Licence and third-party code
 
 castkit is Apache-2.0, © Smartcuts. See [LICENSE](LICENSE).
@@ -350,21 +280,3 @@ or anything you build with it.
 
 That paragraph exists because a licence scan will flag "GPL dependency" and
 someone will have to answer for it.
-
-## Recordings contain everything
-
-A `.cast`, and the `.gif` rendered from it, hold every character that was on
-screen: keys, tokens printed in an error, the lot. Treat one like a document
-containing our source code, because it is one. Read it before sending it.
-
-## Development
-
-From a clone instead, which is the same thing without the download — the kit
-runs from wherever it lives:
-
-```bash
-git clone https://github.com/Smartcuts/castkit ~/castkit && ~/castkit/cast list
-```
-
-`CASTKIT_URL` overrides where the installer fetches from, and `CASTKIT_REF`
-picks a branch or tag.

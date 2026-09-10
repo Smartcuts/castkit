@@ -706,6 +706,39 @@ def run_tui(rows):
         share_path(action[1]["path"], action[2])
 
 
+
+def render_thumbnail(cast, gif):
+    """A still of the finished screen, not a recording of getting there.
+
+    Rendering the whole session produced a gif many times the size of the
+    recording it previewed — 980KB against a 132KB cast in the case that
+    prompted this. Trimming to the opening seconds is no good either: an agent
+    session starts on an empty screen, so the thumbnail came out blank.
+
+    So keep every event, which is what makes the terminal state correct, and
+    collapse the timing. agg then has one frame to draw: the end state, which
+    is also the part worth looking at.
+    """
+    flat = cast + ".thumb.cast"
+    try:
+        with open(cast) as src, open(flat, "w") as dst:
+            first = True
+            for line in src:
+                if not line.strip():
+                    continue
+                if first:
+                    dst.write(line)
+                    first = False
+                    continue
+                ev = json.loads(line)
+                dst.write(json.dumps([0.0] + ev[1:]) + "\n")
+        subprocess.run(["agg", "--font-size", "14",
+                        "--last-frame-duration", "1", flat, gif], check=True)
+    finally:
+        if os.path.exists(flat):
+            os.remove(flat)
+
+
 def cmd_share(a):
     ensure()
     share_path(resolve(a.selector), a.alias)
@@ -734,8 +767,7 @@ def share_path(path, requested_alias=None):
 
     gif = os.path.join(folder, alias + ".gif")
     print(f"rendering {alias}.gif …")
-    subprocess.run(["agg", "--idle-time-limit", "1", "--speed", "2",
-                    "--font-size", "14", path, gif], check=True)
+    render_thumbnail(path, gif)
 
     ix.setdefault(cid, {})
     ix[cid]["alias"] = alias
@@ -747,7 +779,7 @@ def share_path(path, requested_alias=None):
     print(f"\n{folder}")
     print(f"  {alias}.cast   {size(os.path.join(folder, alias + '.cast'))}"
           f"   the recording — attach this")
-    print(f"  {alias}.gif    {size(gif)}   preview, for pasting inline")
+    print(f"  {alias}.gif    {size(gif)}   a still of the end, for pasting inline")
     print("\nboth hold everything that was on screen, in cleartext.")
 
 
