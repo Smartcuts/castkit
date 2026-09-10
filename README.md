@@ -20,7 +20,7 @@ The installation script does three things:
 
 1. Installs dependencies and necessary tools, such as `asciinema` and
    `agg`.
-2. Installs the castkit binary and an utility skill to pair with it.
+2. Installs the castkit binary and a utility skill to pair with it.
 3. Enrolls your local coding agents in (default codex and claude
    code).
 
@@ -28,11 +28,11 @@ The installation script does three things:
 
 The third step in the installation script above, enrollment, wraps
 coding agent binary with our own tooling so that every coding session
-are automatically recorded from now on. Every session started from a
+is automatically recorded from now on. Every session started from a
 fresh shell is captured from its first prompt — there is no command to
-remember and nothing to decide. Those two are only the default; `cast
-enroll` records any other CLI, and `command claude` runs one
-unrecorded.
+remember and nothing to decide. The default enrolment is claude and
+codex; `cast enroll` records any other CLI, and `command claude` runs
+one unrecorded.
 
 You can also manually enroll a coding agent:
 
@@ -49,15 +49,13 @@ cast disenroll codex
 
 ## Using the skill
 
-This castkit ships binary and its helper skill. You can use the skill
-as a more intuitive interface to all the capability. As an example, I
-found it easier to export by:
+castkit ships a binary and a helper skill. The skill is often the
+easier interface: you can describe a session instead of naming it
+exactly.
 
 ```plain
 /cast share the codex session at 5:12pm.
 ```
-
-Instead of being specific about the exact name of the session.
 
 ## Sharing sessions
 
@@ -72,8 +70,8 @@ This creates a folder in your `~/Downloads/`, with two files:
 - a `.cast` file, the original recording, and
 - a `.gif` thumbnail.
 
-The thumnail is taken from the last frame of the recording, intended
-to help contextualize what's being shared.
+The thumbnail is the last frame of the recording that actually drew
+something, intended to help contextualize what's being shared.
 
 You can send over the `.cast` file to your coworkers over Slack,
 etc. And for the receiving person to view the recording, they also
@@ -111,17 +109,16 @@ Datetime          Agent   Alias                Length  Shared
 2026-09-10 18:52  codex   —                    0:18    —
 ```
 
-Press <kbd>enter</kbd> plays the highlighted recording, <kbd>s</kbd>
+<kbd>enter</kbd> plays the highlighted recording, <kbd>s</kbd>
 prompts for an alias and shares it, <kbd>d</kbd> deletes it after
 confirming. The list scrolls, so a short terminal still reaches
 everything.
 
-**Piped or run without a terminal it prints the table instead**, followed by
-the storage line. That fallback is not a flag — the `/cast` skill runs this
-from an agent, which has no terminal, and a TUI-only `list` would break that
-path entirely. `--plain` forces the table at a terminal too.
+**Piped or run without a terminal it prints the table instead**,
+followed by the storage line. `--plain` forces the table at a terminal
+too.
 
-You can deletes old recordings so that we don't have TBs of recordings.
+You can delete old recordings so they don't pile up.
 
 ```bash
 cast purge                 # default, older than 60 days
@@ -135,18 +132,18 @@ was shared — then asks before deleting. That prompt is the one place the kit
 deliberately does not decide for you: everything else it can redo, and this it
 cannot. Index entries for deleted recordings go with them.
 
-## Subcommand
+## Subcommands
 
-| Subcommand                | Function                                  |
-| ------------------------- | ----------------------------------------- |
-| list                      | browse recordings (table when piped)      |
-| play <id\|alias>          | play in the web player                    |
-| share <id\|alias> [alias] | stage a folder in ~/Downloads for sending |
-| purge                     | delete recordings older than two months   |
-| rec [-t "title"]          | starts session recording                  |
-| enroll <command>          | record another CLI's sessions too         |
-| disenroll <command>       | stop recording one                        |
-| version                   | versions and paths, for a bug report      |
+| Subcommand                  | Function                                  |
+| --------------------------- | ----------------------------------------- |
+| `list`                      | browse recordings (table when piped)      |
+| `play <id\|alias>`          | play in the web player                    |
+| `share <id\|alias> [alias]` | stage a folder in ~/Downloads for sending |
+| `purge`                     | delete recordings older than two months   |
+| `rec [-t "title"]`          | starts session recording                  |
+| `enroll <command>`          | record another CLI's sessions too         |
+| `disenroll <command>`       | stop recording one                        |
+| `version`                   | versions and paths, for a bug report      |
 
 ## About wrapping (the enrollment)
 
@@ -199,6 +196,9 @@ picks a branch or tag.
   whose data survives having its escape sequences stripped. Only `o` events
   paint: `x` carries the exit status, whose data is a printable `"0"`, and
   counting that reproduces the blank exactly.
+- **`list` must fall back to a table.** The browser is only for a terminal.
+  The `/cast` skill runs `list` from an agent, which has none, so a
+  TUI-only `list` would break the path the kit is mostly used through.
 - **v3 event times are deltas, not absolutes.** The length of a recording is
   their sum. Taking the last or largest gives the longest single gap — for a
   six-second recording, 1.04s instead of 6.17s.
