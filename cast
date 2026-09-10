@@ -7,12 +7,15 @@
     cast share <id|path> [alias]
                                attach an alias and drop a folder in ~/Downloads
                                holding the .cast and a .gif preview
+    cast purge [--days N]      delete recordings older than two months
+    cast enroll [name]         record a command's sessions automatically
+    cast disenroll <name>      stop recording a command's sessions
 
 Setup happens by itself. There is no install step: every subcommand makes
 sure asciinema, the player and the config are in place before it runs, and
 says nothing when they already are.
 """
-import argparse, glob, json, os, platform, shutil, socket, subprocess, sys, time
+import argparse, glob, json, os, platform, re, shutil, socket, subprocess, sys, time
 import unicodedata
 from datetime import datetime, timedelta
 
@@ -29,7 +32,10 @@ SKILL_LINK = os.path.expanduser("~/.claude/skills/cast")
 MARKER_KEY = "C-t"
 PURGE_AFTER_DAYS = 60          # "older than two months"
 STORAGE_WARN_BYTES = 500 * 1024 ** 2
-AGENTS = ("claude", "codex")
+DEFAULT_AGENTS = ("claude", "codex")
+# A shell function name, and it is written into the user's rc file — so it is
+# checked, not trusted. Anything else could inject shell code there.
+AGENT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
 # Recording wraps the process in a PTY, which swallows its stdout and stdin —
 # fine for a session you are watching, ruinous for `claude -p "..." | jq`.
@@ -50,6 +56,7 @@ NON_SESSION_SUBCOMMANDS = {
 # every machine already installed, including your own.
 SETUP_VERSION = 1
 LOCK = os.path.join(CASTKIT_HOME, "installed")
+AGENTS_FILE = os.path.join(CASTKIT_HOME, "agents.json")
 BEGIN = "# >>> castkit >>>"
 END = "# <<< castkit <<<"
 
@@ -211,6 +218,24 @@ def preferred_shell():
     return os.path.basename(os.environ.get("SHELL", "")) or "zsh"
 
 
+
+def enrolled():
+    """CLIs whose sessions are recorded. Configuration, not a constant —
+    `cast enroll <name>` adds one."""
+    try:
+        with open(AGENTS_FILE) as fh:
+            names = json.load(fh)
+        return [n for n in names if AGENT_NAME.match(n)]
+    except (OSError, ValueError):
+        return list(DEFAULT_AGENTS)
+
+
+def save_enrolled(names):
+    os.makedirs(CASTKIT_HOME, exist_ok=True)
+    with open(AGENTS_FILE, "w") as fh:
+        json.dump(sorted(set(names)), fh, indent=2)
+
+
 def rc_path(shell):
     if shell == "fish":
         return os.path.expanduser("~/.config/fish/config.fish")
@@ -230,14 +255,17 @@ def rc_path(shell):
 
 
 def wrapper_block(shell):
-    note = ("# Agent sessions are recorded by default. `cast rec` resolves the\n"
-            "# real binary from PATH — never these functions — so they cannot\n"
+    agents = enrolled()
+    first = agents[0] if agents else "claude"
+    note = ("# Enrolled sessions are recorded automatically. `cast rec` resolves\n"
+            "# the real binary from PATH — never these functions — so they cannot\n"
             "# recurse, and it hands off untouched for anything that is not an\n"
-            f"# interactive session. Run one unrecorded with `command {AGENTS[0]}`.\n")
+            f"# interactive session. Run one unrecorded with `command {first}`.\n"
+            "# Managed by `cast enroll` / `cast disenroll`; edits here are lost.\n")
     if shell == "fish":
-        fns = "\n".join(f"function {a}; cast rec {a} $argv; end" for a in AGENTS)
+        fns = "\n".join(f"function {a}; cast rec {a} $argv; end" for a in agents)
     else:
-        fns = "\n".join(f'{a}() {{ cast rec {a} "$@"; }}' for a in AGENTS)
+        fns = "\n".join(f'{a}() {{ cast rec {a} "$@"; }}' for a in agents)
     return f"{BEGIN}\n{note}{fns}\n{END}\n"
 
 
@@ -247,7 +275,7 @@ def install_wrappers():
     rc = rc_path(shell)
     if rc is None:
         say(f"unsupported login shell '{shell}' — wrappers not installed.\n"
-            f"    Define {' and '.join(AGENTS)} yourself as: cast rec <agent> <args>")
+            f"    Define {' and '.join(enrolled())} yourself as: cast rec <agent> <args>")
         return {"shell": shell, "rc": None, "state": "unsupported"}
 
     block = wrapper_block(shell)
@@ -264,10 +292,10 @@ def install_wrappers():
         if rebuilt == body:
             return {"shell": shell, "rc": rc, "state": "present"}
         body = rebuilt
-        note = f"updated the {', '.join(AGENTS)} wrappers in {rc}"
+        note = f"updated the wrappers in {rc}: {', '.join(enrolled()) or 'none'}"
     else:
         body = (body.rstrip("\n") + "\n\n" + block) if body else block
-        note = (f"wrapping {' and '.join(AGENTS)} in {rc} ({shell}) so sessions "
+        note = (f"wrapping {' and '.join(enrolled())} in {rc} ({shell}) so sessions "
                 f"record by default\n    (open a new shell, or `source {rc}`)")
 
     try:
@@ -726,6 +754,57 @@ def cmd_purge(a):
     print(f"  {storage_line()}")
 
 
+
+def cmd_enroll(a):
+    ensure()
+    current = enrolled()
+
+    if not a.name:
+        print("recorded automatically:")
+        for n in current:
+            where = shutil.which(n)
+            print(f"  {n:12} {where or 'not installed — will record once it is'}")
+        if not current:
+            print("  (nothing — `cast enroll <command>` adds one)")
+        return
+
+    name = a.name
+    if not AGENT_NAME.match(name):
+        sys.exit(f"cast: '{name}' is not usable as a shell function name — "
+                 "letters, digits, underscore and hyphen only")
+    if name == "cast":
+        sys.exit("cast: enrolling cast would wrap the recorder in itself")
+    if name in current:
+        print(f"{name} is already enrolled")
+        return
+
+    save_enrolled(current + [name])
+    if not shutil.which(name):
+        say(f"{name} is not on PATH yet — enrolled anyway, it records once "
+            "it is installed")
+    state = install_wrappers()
+    print(f"enrolled {name} — {', '.join(enrolled())}")
+    if state.get("rc"):
+        print(f"  open a new shell, or `source {state['rc']}`")
+
+
+def cmd_disenroll(a):
+    ensure()
+    current = enrolled()
+    if a.name not in current:
+        print(f"{a.name} is not enrolled — {', '.join(current) or 'nothing is'}")
+        return
+
+    save_enrolled([n for n in current if n != a.name])
+    state = install_wrappers()
+    remaining = enrolled()
+    print(f"disenrolled {a.name} — "
+          f"{', '.join(remaining) if remaining else 'nothing is recorded now'}")
+    print("  existing recordings are untouched")
+    if state.get("rc"):
+        print(f"  open a new shell, or `source {state['rc']}`")
+
+
 # ------------------------------------------------------------------ entry
 
 def main():
@@ -755,6 +834,14 @@ def main():
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("-y", "--yes", action="store_true", help="skip the prompt")
     p.set_defaults(fn=cmd_purge)
+
+    p = sub.add_parser("enroll", help="record a command's sessions automatically")
+    p.add_argument("name", nargs="?", help="omit to list what is enrolled")
+    p.set_defaults(fn=cmd_enroll)
+
+    p = sub.add_parser("disenroll", help="stop recording a command's sessions")
+    p.add_argument("name")
+    p.set_defaults(fn=cmd_disenroll)
 
     p = sub.add_parser("share", help="attach an alias and stage for sending")
     p.add_argument("selector", help="recording id, alias, or path")

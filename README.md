@@ -17,6 +17,7 @@ there is no command to remember and nothing to decide. Run one unrecorded with
 ```bash
 cast list                       # browse recordings (table when piped)
 cast purge                      # delete recordings older than two months
+cast enroll <command>           # record another CLI's sessions too
 cast play <id|alias>            # play in the web player
 cast share <id|alias> [alias]   # stage a folder in ~/Downloads for sending
 cast rec [-t "title"]           # what the wrappers call; rarely typed by hand
@@ -57,6 +58,31 @@ fish's own `function ... end` syntax in `~/.config/fish/config.fish`, and for
 bash `~/.bash_profile` on macOS — where a login shell never reads `~/.bashrc`,
 so a wrapper written there would never load. An unrecognised shell is reported
 with the snippet to add by hand, and does not block the rest of setup.
+
+## `cast enroll` / `cast disenroll`
+
+Which commands get recorded is configuration, not something baked in.
+
+```bash
+cast enroll                # what is recorded now
+cast enroll kimicode       # record its sessions too
+cast disenroll codex       # stop; existing recordings are kept
+```
+
+Enrolling rewrites the wrapper block in your shell rc and takes effect in the
+next shell. A command that is not installed yet enrolls anyway — it starts
+recording once it appears on PATH, which is the usual case for something you
+are about to try.
+
+The set lives in `~/.castkit/agents.json`, defaulting to claude and codex. The
+name becomes a shell function in your rc file, so it is validated rather than
+trusted: letters, digits, underscore and hyphen only. `cast` cannot be
+enrolled — it would wrap the recorder in itself.
+
+A newly enrolled command has no list of non-interactive subcommands, so only
+the TTY test protects it: piped and redirected runs still pass through
+untouched, but something like its own `exec` subcommand would be recorded
+until it is added to `NON_SESSION_SUBCOMMANDS`.
 
 ## `cast rec`
 

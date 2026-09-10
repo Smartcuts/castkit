@@ -18,6 +18,8 @@ cast rec [-t "title"]          record a session (the shell wrappers call this)
 cast play <id|alias>           play in the web player — a selector is required
 cast list                      recordings; a table when you run it
 cast purge                     delete recordings older than two months
+cast enroll [name]             record another CLI's sessions too
+cast disenroll <name>          stop recording one
 cast share <id|alias> [alias]  attach an alias, stage a folder in ~/Downloads
 ```
 
@@ -118,6 +120,16 @@ recording id. So a title typed naturally is always safe to hand over.
 
 Say once, plainly, that both files hold everything that was on screen in
 cleartext, so they should be read before being sent.
+
+## Enrolling other CLIs
+
+`cast enroll` with no argument lists what is recorded; `cast enroll <name>`
+adds one and `cast disenroll <name>` removes it. Use these when the user wants
+a different agent recorded — they need no confirmation, since both are
+reversible and neither touches existing recordings.
+
+Tell the user a new shell is needed afterwards. Enrolling something not yet
+installed is fine and expected.
 
 ## Purging
 
