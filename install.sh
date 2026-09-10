@@ -49,14 +49,24 @@ rm -rf "$APP.old"
 chmod +x "$APP/cast"
 say "unpacked into $APP"
 
-# The first run is the install: it installs asciinema and agg, links cast onto
-# PATH and the skill into ~/.claude, and wraps the enrolled commands.
+# Setup itself lives in `cast`, not here — it is the same code that repairs a
+# moved install or a dependency that vanished, so duplicating it in shell
+# would mean two implementations drifting apart. Running cast once triggers
+# it: asciinema and agg, the marker-key config, the PATH and skill symlinks,
+# and the shell wrappers.
+say "running setup"
 "$APP/cast" enroll
 
+# The lock is written only after every setup step succeeded, so its absence
+# means something failed quietly. Do not report success in that case.
+LOCK="${CASTKIT_HOME:-$HOME/.castkit}/installed"
+[ -f "$LOCK" ] || die "setup did not complete — no $LOCK was written"
+
+printf '\n  castkit is installed.\n'
+printf '    open a new shell, then:  cast list\n'
 case ":${PATH}:" in
   *":$HOME/.local/bin:"*) ;;
-  *) printf '\n  \033[33m!\033[0m %s is not on your PATH. Add it:\n      %s\n' \
-       "$HOME/.local/bin" 'export PATH="$HOME/.local/bin:$PATH"' >&2 ;;
+  *) printf '    (%s is not on this shell'"'"'s PATH; the wrappers add it\n' \
+       "$HOME/.local/bin"
+     printf '     for new shells, so a new shell is what you want anyway)\n' ;;
 esac
-
-printf '\n  open a new shell, then:  cast list\n'

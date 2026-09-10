@@ -54,7 +54,7 @@ NON_SESSION_SUBCOMMANDS = {
 # Bump when a setup step changes. The lock is invalidated by this and by
 # the kit moving, and by nothing else — an unbumped change is invisible to
 # every machine already installed, including your own.
-SETUP_VERSION = 1
+SETUP_VERSION = 2
 LOCK = os.path.join(CASTKIT_HOME, "installed")
 AGENTS_FILE = os.path.join(CASTKIT_HOME, "agents.json")
 BEGIN = "# >>> castkit >>>"
@@ -255,18 +255,41 @@ def rc_path(shell):
 
 
 def wrapper_block(shell):
+    """Shell functions that route the enrolled commands through `cast rec`.
+
+    Two rules, both learned the hard way. The path to cast is absolute: these
+    functions shadow the real commands, so a bare `cast` that PATH cannot find
+    turns `claude` into "command not found: cast" and the agent stops working
+    at all. And each falls back to the real binary, so removing castkit
+    degrades to an unrecorded session rather than a broken one.
+    """
     agents = enrolled()
     first = agents[0] if agents else "claude"
+    castbin = os.path.join(BINDIR, "cast")
     note = ("# Enrolled sessions are recorded automatically. `cast rec` resolves\n"
             "# the real binary from PATH — never these functions — so they cannot\n"
             "# recurse, and it hands off untouched for anything that is not an\n"
             f"# interactive session. Run one unrecorded with `command {first}`.\n"
             "# Managed by `cast enroll` / `cast disenroll`; edits here are lost.\n")
+
     if shell == "fish":
-        fns = "\n".join(f"function {a}; cast rec {a} $argv; end" for a in agents)
+        path_line = (f"if not contains {BINDIR} $PATH\n"
+                     f"    set -gx PATH {BINDIR} $PATH\nend\n")
+        fns = "\n".join(
+            f"function {a}\n"
+            f"    if test -x {castbin}\n"
+            f"        {castbin} rec {a} $argv\n"
+            f"    else\n"
+            f"        command {a} $argv\n"
+            f"    end\nend" for a in agents)
     else:
-        fns = "\n".join(f'{a}() {{ cast rec {a} "$@"; }}' for a in agents)
-    return f"{BEGIN}\n{note}{fns}\n{END}\n"
+        path_line = (f'case ":$PATH:" in *":{BINDIR}:"*) ;; '
+                     f'*) PATH="{BINDIR}:$PATH" ;; esac\n')
+        fns = "\n".join(
+            f'{a}() {{ if [ -x "{castbin}" ]; then "{castbin}" rec {a} "$@"; '
+            f'else command {a} "$@"; fi; }}' for a in agents)
+
+    return f"{BEGIN}\n{note}{path_line}{fns}\n{END}\n"
 
 
 def install_wrappers():

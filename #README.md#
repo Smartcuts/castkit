@@ -10,12 +10,14 @@ text stays selectable on playback.
 ## Install
 
 ```bash
-# Installation script
 curl -fsSL https://raw.githubusercontent.com/Smartcuts/castkit/main/install.sh | sh
-
-# Env setup
-cast
 ```
+
+The installation script does three things:
+
+1. Installs dependencies and necessary tools, such as `asciinema` and
+   `agg`.
+2. 
 
 Then open a new shell. That is the whole install: it unpacks the kit into
 `~/.castkit/app` and runs it once, and that first run installs asciinema and
@@ -29,8 +31,8 @@ one and swapped only once it is complete.
 
 Needs `curl`, `tar` and `python3`, on macOS or Linux. Windows needs WSL.
 
-The wrapper block puts `~/.local/bin` on your PATH itself, so a new shell has
-`cast` whether or not you had it there before.
+If `~/.local/bin` is not on your PATH the installer says so and prints the
+line to add.
 
 From a clone instead, which is the same thing without the download — the kit
 runs from wherever it lives:
@@ -275,12 +277,6 @@ config to point it somewhere of ours instead.
 - **`cast` must resolve through its symlink.** It is linked into
   `~/.local/bin`, so `os.path.abspath(__file__)` would give the link's
   directory and the player files would not be found. Hence `realpath`.
-- **A wrapper must never break the command it shadows.** `claude() { cast rec
-  claude "$@"; }` turns into `command not found: cast` the moment PATH lacks
-  `~/.local/bin` — installing castkit would stop your agent working at all.
-  So the wrappers call cast by absolute path, and fall back to `command
-  claude` when it is missing: removing castkit costs you the recording, not
-  the agent.
 - **The viewer layout is load-bearing.** `main` is `flex: 1` with
   `min-height: 0` and the player uses `fit: "both"`. Under `fit: "width"` an
   80×24 terminal scales to fill the page, the player grows taller than the
