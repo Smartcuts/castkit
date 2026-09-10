@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Bundle a recording and the player into one self-contained .html file.
 
+    cast-share                    # the most recent recording
     cast-share session.cast [-o out.html]
 
 The result is a single file with the player, its stylesheet and the recording
@@ -12,9 +13,19 @@ is fetched.
 The UI comes from player.html, so the shared page has the same speed and
 dead-air controls as the local viewer.
 """
-import argparse, json, os, sys
+import argparse, glob, json, os, subprocess, sys
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+# realpath, not abspath: invoked through the PATH symlink, abspath would
+# give ~/.local/bin and the player files would not be found.
+HERE = os.path.dirname(os.path.realpath(__file__))
+CAST_DIR = os.environ.get("CAST_DIR", os.path.expanduser("~/casts"))
+
+
+def newest_recording():
+    casts = glob.glob(os.path.join(CAST_DIR, "*.cast"))
+    if not casts:
+        sys.exit(f"cast-share: no recordings in {CAST_DIR} — run cast-rec first")
+    return max(casts, key=os.path.getmtime)
 
 
 def read(*parts):
@@ -29,11 +40,16 @@ def js_string(text):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("cast")
+    ap.add_argument("cast", nargs="?")
     ap.add_argument("-o", "--output")
     ap.add_argument("-n", "--name", help="label shown in the header")
     a = ap.parse_args()
 
+    # Set up whatever is missing rather than telling the user to go and do it.
+    subprocess.run([os.path.join(HERE, "install"), "--ensure"], check=True)
+
+    if a.cast is None:
+        a.cast = newest_recording()
     if not os.path.isfile(a.cast):
         sys.exit(f"cast-share: no such file: {a.cast}")
     with open(a.cast, encoding="utf-8") as fh:

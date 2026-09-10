@@ -1,39 +1,44 @@
 #!/usr/bin/env bash
-# Play an asciinema recording in the web player, entirely on this machine.
+# Watch a recording in the web player, entirely on this machine.
 #
-#   cast-view <recording.cast> [port]
+#   cast-view                 # the most recent recording
+#   cast-view session.cast    # a particular one
 #
 # Nothing is uploaded and nothing is fetched from a CDN: the player is
-# vendored in vendor/. The server binds to 127.0.0.1 only, so the recording
-# is not reachable from the local network.
+# vendored. The server binds to 127.0.0.1 only, so the recording is not
+# reachable from the network. Set CAST_PORT to pin the port.
 set -euo pipefail
 
-cast=${1:-}
-port=${2:-8777}
-if [ -z "$cast" ]; then
-  echo "usage: cast-view <recording.cast> [port]" >&2
-  exit 1
-fi
-if [ ! -f "$cast" ]; then
-  echo "cast-view: no such file: $cast" >&2
-  exit 1
-fi
+# Resolve through the PATH symlink, or $here would be ~/.local/bin
+here=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+"$here/install" --ensure
 
-dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+dir=${CAST_DIR:-$HOME/casts}
+cast=${1:-}
+if [ -z "$cast" ]; then
+  cast=$(ls -t "$dir"/*.cast 2>/dev/null | head -1 || true)
+  [ -n "$cast" ] || {
+    echo "cast-view: no recordings in $dir — run cast-rec first" >&2; exit 1; }
+fi
+[ -f "$cast" ] || { echo "cast-view: no such file: $cast" >&2; exit 1; }
+
 abs="$(cd "$(dirname "$cast")" && pwd)/$(basename "$cast")"
-ln -sfn "$abs" "$dir/current.cast"
+ln -sfn "$abs" "$here/current.cast"
+
+# Ask the kernel for a free port rather than picking one and colliding.
+port=${CAST_PORT:-$(python3 -c 'import socket
+s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')}
 
 # --bind 127.0.0.1 matters: the default is 0.0.0.0, which would serve the
 # recording to anyone on the same network.
-python3 -m http.server "$port" --bind 127.0.0.1 --directory "$dir" \
+python3 -m http.server "$port" --bind 127.0.0.1 --directory "$here" \
   >/dev/null 2>&1 &
 server=$!
 trap 'kill "$server" 2>/dev/null || true' EXIT
 
 url="http://127.0.0.1:$port/player.html"
-echo "serving $(basename "$abs")"
+echo "watching $(basename "$abs")"
 echo "  $url"
-echo "  add ?idle=2 to cap dead air, ?speed=2 to run faster"
 echo "ctrl+c to stop"
-[ -n "${NO_OPEN:-}" ] || command -v open >/dev/null && open "$url" || true
+if [ -z "${NO_OPEN:-}" ] && command -v open >/dev/null; then open "$url" || true; fi
 wait "$server"

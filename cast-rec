@@ -9,7 +9,8 @@
 # session cannot capture the TUI it is already running in.
 set -euo pipefail
 
-here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# Resolve through the PATH symlink, or $here would be ~/.local/bin
+here=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 dir=${CAST_DIR:-$HOME/casts}
 title=""
 out=""
@@ -29,8 +30,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-command -v asciinema >/dev/null || {
-  echo "cast-rec: asciinema is not installed — run ./install" >&2; exit 1; }
+# Set up whatever is missing rather than telling the user to go and do it.
+"$here/install" --ensure
 
 if [ $# -gt 0 ]; then cmd=("$@"); else cmd=(claude); fi
 command -v "${cmd[0]}" >/dev/null || {
@@ -56,5 +57,5 @@ echo
 asciinema "${args[@]}" -c "$(printf '%q ' "${cmd[@]}")" "$out"
 
 echo
-echo "watch it:  $here/cast-view $out"
-echo "share it:  $here/cast-share $out"
+echo "watch it:  cast-view"
+echo "share it:  cast-share"
