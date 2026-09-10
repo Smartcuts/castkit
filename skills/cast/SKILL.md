@@ -57,10 +57,17 @@ echo "${ASCIINEMA_SESSION:-not recorded}"
 **Set** — it is being recorded. Say so, and that `cast list` will show it once
 it ends.
 
-**Unset** — it is not. That means this shell predates the wrappers, or the
-agent was launched with `command claude`. Say so plainly rather than letting
-the user assume it is being saved, and tell them a new shell gets it. Do not
-offer to record the current session; nothing can.
+**Unset** — it is not. Say so plainly rather than letting the user assume it
+is being saved, and do not offer to record the current session; nothing can.
+The usual reasons: this shell predates the wrappers, the agent was launched
+with `command claude`, or **this is not an interactive session**.
+
+Non-interactive runs are deliberately never recorded — `claude -p`,
+`codex exec`, anything piped or redirected, and the management subcommands.
+Recording wraps a process in a PTY, which captures its stdout instead of
+passing it through, so recording `claude -p "..." | jq` would hand jq
+asciinema's diagnostics where the answer should be. If a user asks why one of
+those was not recorded, that is why — it is protection, not a gap.
 
 ## Listing
 

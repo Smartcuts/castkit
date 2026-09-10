@@ -26,6 +26,21 @@ BINDIR = os.path.expanduser("~/.local/bin")
 SKILL_LINK = os.path.expanduser("~/.claude/skills/cast")
 MARKER_KEY = "C-t"
 AGENTS = ("claude", "codex")
+
+# Recording wraps the process in a PTY, which swallows its stdout and stdin —
+# fine for a session you are watching, ruinous for `claude -p "..." | jq`.
+# So only an interactive session is ever recorded.
+NON_SESSION_FLAGS = {"-p", "--print", "--version", "-v", "--help", "-h"}
+NON_SESSION_SUBCOMMANDS = {
+    "claude": {"agents", "auth", "auto-mode", "doctor", "gateway", "import",
+               "install", "logs", "mcp", "plugin", "project", "rm",
+               "setup-token", "stop", "ultrareview", "update"},
+    "codex": {"exec", "e", "review", "agents", "app", "app-server", "apply",
+              "archive", "completion", "debug", "delete", "doctor",
+              "exec-server", "features", "help", "login", "logout", "mcp",
+              "mcp-server", "migrate-rollouts", "plugin", "queue",
+              "remote-control", "sandbox", "unarchive", "update"},
+}
 BEGIN = "# >>> cast-kit >>>"
 END = "# <<< cast-kit <<<"
 
@@ -77,6 +92,28 @@ def ensure(gif=False):
     link(os.path.join(HERE, "skills", "cast"), SKILL_LINK)
     install_wrappers()
 
+
+
+
+def is_session(agent, argv):
+    """Is this an interactive agent session, the only thing worth recording?
+
+    Anything else is left alone entirely: a recorded process has its stdout
+    captured into the cast rather than passed through, so recording
+    `claude -p` or a piped run would hand the caller asciinema's diagnostics
+    where its output should be.
+    """
+    # The real safety net. Catches pipes, redirects, scripts, CI, and the
+    # stdio servers, whatever they are called this month.
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    if NON_SESSION_FLAGS & set(argv):
+        return False
+    first = next((x for x in argv if not x.startswith("-")), None)
+    # An unrecognised word is a prompt or a flag's value, not a subcommand,
+    # so unknown things record. Erring that way costs a stray recording;
+    # erring the other way corrupts someone's output.
+    return first not in NON_SESSION_SUBCOMMANDS.get(agent, ())
 
 
 def rc_path():
@@ -282,8 +319,9 @@ def cmd_rec(a):
         sys.exit(f"cast: {cmd[0]} not found")
     agent = slugify(os.path.basename(cmd[0]), fallback="session")
 
-    # Already inside a recording: run the agent, do not nest a second one.
-    if os.environ.get("ASCIINEMA_SESSION"):
+    # Hand off untouched unless this is an interactive session: already inside
+    # a recording (no nesting), or not a session at all (no stdout capture).
+    if os.environ.get("ASCIINEMA_SESSION") or not is_session(agent, cmd[1:]):
         os.execv(real, [real] + cmd[1:])
 
     os.makedirs(CAST_DIR, exist_ok=True)

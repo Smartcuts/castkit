@@ -49,11 +49,23 @@ session can record that session, because by then the TUI is live and nothing
 wraps it in a PTY. That is precisely why the wrappers exist: they do it before
 the agent starts, so it is never something anyone has to invoke.
 
-Two things keep the wrapping safe. `cast rec` resolves the agent to its
-absolute path via PATH, which never sees a shell function, so the wrapper
-cannot recurse into itself. And it refuses to nest: inside a session that is
-already recorded, it runs the agent directly rather than starting a second
-capture.
+Three things keep the wrapping safe.
+
+**Only interactive sessions are recorded.** Recording wraps a process in a PTY
+and captures its stdout rather than passing it through, so a recorded
+`claude -p "..." | jq` hands jq asciinema's diagnostics where the answer
+should be, and swallows stdin on the way. So `cast rec` hands off untouched
+unless stdin and stdout are both TTYs and the invocation looks like a session:
+not `-p`/`--print`, not `codex exec`, not `--version`, not a management
+subcommand. An unrecognised word is treated as a prompt or a flag's value and
+does record — erring that way costs a stray recording, erring the other way
+corrupts someone's output.
+
+**It cannot recurse.** `cast rec` resolves the agent to its absolute path via
+PATH, which never sees a shell function.
+
+**It refuses to nest.** Inside a session that is already recorded, it runs the
+agent directly rather than starting a second capture.
 
 ## `cast play`
 
