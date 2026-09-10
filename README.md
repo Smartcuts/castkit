@@ -26,12 +26,13 @@ The installation script does three things:
 
 ## Sessions record themselves
 
-The third step, enrollment, wraps coding agent binary with our own
-tooling so that every coding session are automatically recorded from
-now on. Every session started from a fresh shell is captured from its
-first prompt — there is no command to remember and nothing to
-decide. Those two are only the default; `cast enroll` records any
-other CLI, and `command claude` runs one unrecorded.
+The third step in the installation script above, enrollment, wraps
+coding agent binary with our own tooling so that every coding session
+are automatically recorded from now on. Every session started from a
+fresh shell is captured from its first prompt — there is no command to
+remember and nothing to decide. Those two are only the default; `cast
+enroll` records any other CLI, and `command claude` runs one
+unrecorded.
 
 You can also manually enroll a coding agent:
 
@@ -58,44 +59,29 @@ found it easier to export by:
 
 Instead of being specific about the exact name of the session.
 
-## Sharing recordings
+## Sharing sessions
 
-Attaches an alias to the recording and writes `~/Downloads/<alias>/`:
+To share a session with your team mate:
 
-- `<alias>.cast` — **the artifact.** Attach this. It is the native format,
-  it is tiny, and anyone with asciinema can play it.
-- `<alias>.gif` — a **thumbnail**: a single still of the finished screen, for
-  pasting where an image renders inline — a PR description, an issue, a Slack
-  message. Around 50 KB regardless of how long the session ran, because its
-  size follows the terminal's dimensions rather than the recording's length.
-
-Pass the alias as ordinary text — `cast share 20260910-1814 "Fixing the
-parser"` writes `~/Downloads/fixing-the-parser/`. Accents fold to ASCII,
-punctuation and emoji become separators, the result is capped at 40
-characters, and something that normalises to nothing falls back to the
-recording id. Given no alias at all it reuses the one already attached, or
-derives one from the recording's title.
-
-An alias is also a selector, so it has to be unique: sharing under a name
-another recording already holds is refused, and names the recording holding
-it. Re-sharing the same recording under its own alias just re-stages it.
-
-### What the person receiving it does
-
-Attach the `.cast`, paste the `.gif`. On the other end, a `.cast` is only a
-file until something can play it — so tell them one of these:
-
-```bash
-# already have asciinema
-asciinema play <file>.cast
-
-# or get the kit, and with it seeking, speed and the dead-air control
-curl -fsSL https://raw.githubusercontent.com/Smartcuts/castkit/main/install.sh | sh
-cast play <file>.cast
+```
+cast share <id|alias>
 ```
 
-Nothing is uploaded either way: the file goes over whatever you already use,
-and the player runs on their machine.
+This creates a folder in your `~/Downloads/`, with two files:
+
+- a `.cast` file, the original recording, and
+- a `.gif` thumbnail.
+
+The thumnail is taken from the last frame of the recording, intended
+to help contextualize what's being shared.
+
+You can send over the `.cast` file to your coworkers over Slack,
+etc. And for the receiving person to view the recording, they also
+need to [install `castkit`](#install), and then
+
+```
+cast play <path-to-.cast-file>
+```
 
 ## Managing recordings
 
@@ -162,35 +148,6 @@ cannot. Index entries for deleted recordings go with them.
 | disenroll <command>       | stop recording one                        |
 | version                   | versions and paths, for a bug report      |
 
-### `cast rec`
-
-Initiates a recording in the current terminal session. To stop
-recording, `ctrl+d` and end the current terminal process; To pause,
-`ctrl+\`. This is helpful before you type a password; And use `ctrl+t`
-to drop a marker, which is useful for replays to quickly navigate back
-to it.
-
-### `cast play`
-
-Takes a recording id, an alias, a printed datetime, or a path — a selector is
-required, since playing "whatever was most recent" is rarely what is meant. A
-leading fragment works when it is unambiguous, and an ambiguous one says so.
-
-Serves the vendored player on a free loopback port. What you get over
-`asciinema play`, which has none of it:
-
-- **speed** — `0.5×` `1×` `1.5×` `2×` `4×`, switchable mid-playback
-- **dead air** — cap idle gaps at 2s, toggled while watching
-- a progress bar you can click, <kbd>←</kbd>/<kbd>→</kbd> to seek,
-  <kbd>0</kbd>–<kbd>9</kbd> to jump by percent, <kbd>.</kbd> to step a
-  frame while paused, <kbd>f</kbd> for fullscreen
-
-## Recordings contain everything
-
-A `.cast`, and the `.gif` rendered from it, hold every character that was on
-screen: keys, tokens printed in an error, the lot. Treat one like a document
-containing our source code, because it is one. Read it before sending it.
-
 ## About wrapping (the enrollment)
 
 **Recording has to wrap the agent from outside** — nothing running inside a
@@ -222,7 +179,7 @@ From a clone instead, which is the same thing without the download — the kit
 runs from wherever it lives:
 
 ```bash
-git clone https://github.com/Smartcuts/castkit ~/castkit && ~/castkit/cast list
+git clone https://github.com/Smartcuts/castkit && ./castkit/cast list
 ```
 
 `CASTKIT_URL` overrides where the installer fetches from, and `CASTKIT_REF`
@@ -230,13 +187,18 @@ picks a branch or tag.
 
 ### Traps worth knowing
 
-- **A thumbnail of a terminal session is the last frame, not the first.** Two
-  wrong turns are worth remembering. Rendering the whole session gave a gif
-  many times the size of the recording it previewed — 980 KB against a 132 KB
-  cast. Trimming to the opening seconds fixed the size and produced a blank
-  image, because an agent session begins on an empty screen. What works is
-  keeping every event, which is what makes the terminal state correct, and
-  collapsing the timing so there is one frame left to draw.
+- **A thumbnail of a terminal session is the last frame that painted
+  something** — which is neither the first frame nor, quite, the last. Three
+  wrong turns, each of which looked right until the image was opened.
+  Rendering the whole session gave a gif many times the size of the recording
+  it previewed: 980 KB against a 132 KB cast. Trimming to the opening seconds
+  fixed the size and rendered blank, because an agent session begins on an
+  empty screen. Taking the true final frame rendered blank too for codex,
+  which tears the terminal down on exit — its last output event is
+  cursor-home plus erase-to-end-of-screen. So walk back to the last `o` event
+  whose data survives having its escape sequences stripped. Only `o` events
+  paint: `x` carries the exit status, whose data is a printable `"0"`, and
+  counting that reproduces the blank exactly.
 - **v3 event times are deltas, not absolutes.** The length of a recording is
   their sum. Taking the last or largest gives the longest single gap — for a
   six-second recording, 1.04s instead of 6.17s.

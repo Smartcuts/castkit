@@ -707,6 +707,16 @@ def run_tui(rows):
 
 
 
+# Escape sequences, so we can ask whether an event actually painted anything.
+ANSI = re.compile(r"\x1b\[[0-9;?<>=]*[ -/]*[@-~]"
+                  r"|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\\\)"
+                  r"|\x1b[@-Z\\-_]")
+
+
+def paints_text(data):
+    return bool(ANSI.sub("", data).strip())
+
+
 def render_thumbnail(cast, gif):
     """A still of the finished screen, not a recording of getting there.
 
@@ -719,19 +729,26 @@ def render_thumbnail(cast, gif):
     collapse the timing. agg then has one frame to draw: the end state, which
     is also the part worth looking at.
     """
+    hdr, ev = header_and_events(cast)
+
+    # Stop at the last event that put something on screen. Agents tear the
+    # terminal down on exit — codex ends with cursor-home plus erase-to-end —
+    # so the true final frame is often blank, and everything after that point
+    # is mode restoration with nothing to show.
+    # Only "o" events paint. "x" carries the exit status, whose data is a
+    # printable "0" — which is exactly what made the first version of this
+    # pick the very last event and render a blank screen anyway.
+    last = next((i for i in range(len(ev) - 1, -1, -1)
+                 if len(ev[i]) > 2 and ev[i][1] == "o"
+                 and isinstance(ev[i][2], str) and paints_text(ev[i][2])), None)
+    kept = ev if last is None else ev[:last + 1]
+
     flat = cast + ".thumb.cast"
     try:
-        with open(cast) as src, open(flat, "w") as dst:
-            first = True
-            for line in src:
-                if not line.strip():
-                    continue
-                if first:
-                    dst.write(line)
-                    first = False
-                    continue
-                ev = json.loads(line)
-                dst.write(json.dumps([0.0] + ev[1:]) + "\n")
+        with open(flat, "w") as dst:
+            dst.write(json.dumps(hdr) + "\n")
+            for e in kept:
+                dst.write(json.dumps([0.0] + list(e[1:])) + "\n")
         subprocess.run(["agg", "--font-size", "14",
                         "--last-frame-duration", "1", flat, gif], check=True)
     finally:
