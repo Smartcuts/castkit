@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Set up everything the kit needs: the asciinema CLI, the vendored player,
+# and a config file that binds a marker key.
+#
+#   ./install                      # install what is missing, leave the rest
+#   ./install --refresh-player     # re-vendor the player at its latest version
+#   ./install --marker-key C-g     # bind a different marker key
+#
+# Safe to re-run: nothing already present is overwritten.
+set -euo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+refresh_player=0
+marker_key="C-t"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --refresh-player) refresh_player=1; shift ;;
+    --marker-key) marker_key=${2:?}; shift 2 ;;
+    -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}" | cut -c3-; exit 0 ;;
+    *) echo "install: unknown option $1" >&2; exit 1 ;;
+  esac
+done
+
+step () { printf '\n\033[1m%s\033[0m\n' "$1"; }
+ok   () { printf '  \033[32m✓\033[0m %s\n' "$1"; }
+warn () { printf '  \033[33m!\033[0m %s\n' "$1"; }
+
+# ---------------------------------------------------------------- asciinema
+step "asciinema CLI"
+if command -v asciinema >/dev/null; then
+  ok "already installed — $(asciinema --version)"
+else
+  if command -v brew >/dev/null; then
+    warn "not found; installing with homebrew"
+    brew install asciinema
+  elif command -v cargo >/dev/null; then
+    warn "not found; building with cargo (this takes a few minutes)"
+    cargo install --locked asciinema
+  else
+    echo "  no brew and no cargo. Install one, or grab a binary from" >&2
+    echo "  https://github.com/asciinema/asciinema/releases" >&2
+    exit 1
+  fi
+  command -v asciinema >/dev/null || { echo "  install failed" >&2; exit 1; }
+  ok "installed — $(asciinema --version)"
+fi
+
+# Recordings are asciicast v3 from 3.x onwards; the vendored player reads
+# v1, v2 and v3, so an older CLI still works, but say so rather than assume.
+major=$(asciinema --version | grep -oE '[0-9]+' | head -1)
+[ "${major:-0}" -ge 3 ] || warn "version $major is older than 3 — markers and \
+streaming are unavailable; 'cargo install --locked asciinema' gets 3.x"
+
+# ------------------------------------------------------------------- player
+step "player"
+bundle="$here/vendor/asciinema-player.min.js"
+if [ -f "$bundle" ] && [ "$refresh_player" -eq 0 ]; then
+  ok "vendored — $(cat "$here/vendor/VERSION" 2>/dev/null || echo unknown)"
+else
+  command -v npm >/dev/null || {
+    echo "  npm is needed to fetch the player. Install node, or copy" >&2
+    echo "  dist/bundle/{asciinema-player.min.js,asciinema-player.css} in by hand." >&2
+    exit 1; }
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
+  ( cd "$tmp" && npm pack asciinema-player --silent >/dev/null && tar xzf asciinema-player-*.tgz )
+  mkdir -p "$here/vendor"
+  cp "$tmp/package/dist/bundle/asciinema-player.min.js" \
+     "$tmp/package/dist/bundle/asciinema-player.css" "$here/vendor/"
+  cp "$tmp/package/LICENSE" "$here/vendor/LICENSE.asciinema-player"
+  node -e 'console.log(require(process.argv[1]).version)' \
+       "$tmp/package/package.json" > "$here/vendor/VERSION"
+  ok "vendored — $(cat "$here/vendor/VERSION")"
+fi
+
+# ------------------------------------------------------------------- config
+step "asciinema config"
+cfg="${XDG_CONFIG_HOME:-$HOME/.config}/asciinema/config.toml"
+if [ -f "$cfg" ]; then
+  ok "already present at $cfg — left alone"
+  grep -q add_marker_key "$cfg" || warn "no add_marker_key set; markers unavailable"
+else
+  mkdir -p "$(dirname "$cfg")"
+  cat > "$cfg" <<CFG
+[session]
+# asciinema swallows this key: the program being recorded never sees it.
+# Change it if it collides with something you use. "ctrl+t" is NOT valid
+# syntax here — the form is "C-t".
+add_marker_key = "$marker_key"
+
+[playback]
+speed = 1.0
+CFG
+  ok "wrote $cfg with add_marker_key = \"$marker_key\""
+fi
+
+step "ready"
+echo "  ./cast-rec                 record the agent"
+echo "  ./cast-view <file.cast>    watch it locally"
+echo "  ./cast-share <file.cast>   bundle it into one shareable .html"
