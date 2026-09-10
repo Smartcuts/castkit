@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Record a terminal session — by default the coding agent — to a .cast file.
+#
+#   cast-rec                        # records `claude`
+#   cast-rec -t "fixing the parser" # ...with a title
+#   cast-rec -- npm test            # record something else
+#
+# Recording has to wrap the agent from the outside. A skill invoked inside a
+# session cannot capture the TUI it is already running in.
+set -euo pipefail
+
+here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+dir=${CAST_DIR:-$HOME/casts}
+title=""
+out=""
+idle=2
+size=""
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -t|--title) title=${2:?}; shift 2 ;;
+    -o|--output) out=${2:?}; shift 2 ;;
+    -i|--idle) idle=${2:?}; shift 2 ;;
+    -s|--size) size=${2:?}; shift 2 ;;
+    -h|--help) sed -n '2,9p' "${BASH_SOURCE[0]}" | cut -c3-; exit 0 ;;
+    --) shift; break ;;
+    -*) echo "cast-rec: unknown option $1" >&2; exit 1 ;;
+    *) break ;;
+  esac
+done
+
+command -v asciinema >/dev/null || {
+  echo "cast-rec: asciinema is not installed — run ./install" >&2; exit 1; }
+
+if [ $# -gt 0 ]; then cmd=("$@"); else cmd=(claude); fi
+command -v "${cmd[0]}" >/dev/null || {
+  echo "cast-rec: ${cmd[0]} not found" >&2; exit 1; }
+
+if [ -z "$out" ]; then
+  slug=$(printf '%s' "${title:-${cmd[0]}}" \
+         | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' \
+         | sed 's/^-//; s/-$//' | cut -c1-40)
+  mkdir -p "$dir"
+  out="$dir/$(date +%Y%m%d-%H%M%S)-${slug:-session}.cast"
+fi
+
+args=(rec --idle-time-limit "$idle")
+[ -n "$title" ] && args+=(--title "$title")
+[ -n "$size" ] && args+=(--window-size "$size")
+
+# Everything typed and printed lands in the file as cleartext.
+echo "recording to $out"
+echo "  ctrl+d ends · ctrl+\\ pauses capture · ctrl+t drops a marker"
+echo
+
+asciinema "${args[@]}" -c "$(printf '%q ' "${cmd[@]}")" "$out"
+
+echo
+echo "watch it:  $here/cast-view $out"
+echo "share it:  $here/cast-share $out"
