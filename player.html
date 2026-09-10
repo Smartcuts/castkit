@@ -36,8 +36,13 @@
 
 <script src="vendor/asciinema-player.min.js"></script>
 <script>
+  // cast-share injects __CAST__ (the recording inlined as text) so a shared
+  // bundle needs no server and no sibling files. Served normally, we fetch.
+  const inlineData = window.__CAST__ || null;
   const q = new URLSearchParams(location.search);
-  const cast = q.get('cast') || 'current.cast';
+  const cast = inlineData ? (window.__CAST_NAME__ || 'recording')
+                          : (q.get('cast') || 'current.cast');
+  const source = inlineData ? { data: inlineData, parser: 'asciicast' } : cast;
   const SPEEDS = [0.5, 1, 1.5, 2, 4];
 
   let speed = parseFloat(q.get('speed') || '1');
@@ -59,7 +64,7 @@
     const opts = { controls: true, fit: 'both', speed,
                    startAt: at, autoPlay: playing };
     if (idle) opts.idleTimeLimit = idle;
-    player = AsciinemaPlayer.create(cast, el, opts);
+    player = AsciinemaPlayer.create(source, el, opts);
     player.addEventListener('play', () => { playing = true; });
     player.addEventListener('pause', () => { playing = false; });
     player.addEventListener('ended', () => { playing = false; at = 0; });
@@ -80,13 +85,19 @@
     i.onclick = () => { idle = idle ? null : 2; mount(); };
   }
 
-  // Fetch first: a missing cast otherwise leaves a silently blank player.
-  fetch(cast, { method: 'HEAD' })
-    .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); mount(); })
-    .catch(e => {
-      document.querySelector('main').innerHTML =
-        '<div class="err">could not load <b>' + cast + '</b>\n' + e +
-        '\n\nServe this directory and pass a cast that lives in it:\n' +
-        '  ./cast-view path/to/recording.cast</div>';
-    });
+  function fail(e) {
+    document.querySelector('main').innerHTML =
+      '<div class="err">could not load <b>' + cast + '</b>\n' + e +
+      '\n\nServe this directory and pass a cast that lives in it:\n' +
+      '  ./cast-view path/to/recording.cast</div>';
+  }
+
+  if (inlineData) {
+    try { mount(); } catch (e) { fail(e); }
+  } else {
+    // Fetch first: a missing cast otherwise leaves a silently blank player.
+    fetch(cast, { method: 'HEAD' })
+      .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); mount(); })
+      .catch(fail);
+  }
 </script>
