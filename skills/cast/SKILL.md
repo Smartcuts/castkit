@@ -14,9 +14,9 @@ allowed-tools:
 # cast
 
 ```bash
-cast rec [-t "title"]          start recording (records `claude` by default)
+cast rec [-t "title"]          record a session (the shell wrappers call this)
 cast play <id|alias>           play in the web player — a selector is required
-cast list                      recent recordings: Datetime | Alias | Length | Shared
+cast list                      Datetime | Agent | Alias | Length | Shared
 cast share <id|alias> [alias]  attach an alias, stage a folder in ~/Downloads
 ```
 
@@ -38,30 +38,38 @@ If `cast` is not yet on PATH, run it once by path — that run creates the link:
 "$(dirname "$(readlink -f ~/.claude/skills/cast)")/../cast" list
 ```
 
-## You cannot start a recording from in here
+## Recording already happened — you do not start it
 
-A recording has to wrap the agent from outside. By the time you are running,
-the TUI is live and nothing wraps it in a PTY — shelling out to asciinema
-would capture a child process, not this conversation.
+Sessions record themselves. Setup installs shell wrappers so `claude` and
+`codex` run under `cast rec`, which means every session started from a fresh
+shell is captured from its first prompt. Nobody has to remember a command.
 
-So when asked to record, do not try. Tell the user to start their next session
-with `cast rec` instead of `claude`, optionally `cast rec -t "what it is about"`.
+You still cannot start a recording of the session you are inside — by then the
+TUI is live and nothing wraps it in a PTY. But that is no longer something to
+work around, because the wrapper did it already.
 
-To answer whether the *current* session is being recorded:
+When asked to record, check whether this session is captured:
 
 ```bash
 echo "${ASCIINEMA_SESSION:-not recorded}"
 ```
 
-Set means it is being captured. Unset means it is not — say so plainly rather
-than letting the user assume the conversation is being saved.
+**Set** — it is being recorded. Say so, and that `cast list` will show it once
+it ends.
+
+**Unset** — it is not. That means this shell predates the wrappers, or the
+agent was launched with `command claude`. Say so plainly rather than letting
+the user assume it is being saved, and tell them a new shell gets it. Do not
+offer to record the current session; nothing can.
 
 ## Listing
 
-`cast list` prints the recent recordings as
-`Datetime | Alias | Length | Shared`. Run it whenever the user refers to a
-recording vaguely — "the one from this morning", "the parser one" — and show
-them the table rather than guessing which they mean.
+`cast list` prints `Datetime | Agent | Alias | Length | Shared`. Run it
+whenever the user refers to a recording vaguely — "the one from this morning",
+"the codex one" — and show them the table rather than guessing which they mean.
+
+The Datetime it prints can be pasted straight back as a selector:
+`cast play "2026-09-10 18:45"` resolves.
 
 ## Playing
 
@@ -98,5 +106,6 @@ cleartext, so they should be read before being sent.
 
 ## Recordings live in `~/casts`
 
-Named `<date>-<time>-<slug>.cast`, with aliases and share dates in
+Named `<date>-<time>-<agent>.cast` — the agent is `claude` or `codex`, so the
+id says which produced it. Aliases and share dates live in
 `~/casts/index.json`. `CAST_DIR` moves the lot.

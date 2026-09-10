@@ -7,17 +7,22 @@ Built around [asciinema](https://asciinema.org), which records the terminal as
 text rather than pixels: a session is a small, greppable JSON file whose text
 stays selectable on playback.
 
-## One command, four verbs
+## Sessions record themselves
+
+Setup wraps `claude` and `codex` in your shell so both run under `cast rec`.
+Every session started from a fresh shell is captured from its first prompt —
+there is no command to remember and nothing to decide. Run one unrecorded with
+`command claude`.
 
 ```bash
-cast rec [-t "title"]           # start recording — `claude` unless told otherwise
+cast list                       # Datetime | Agent | Alias | Length | Shared
 cast play <id|alias>            # play in the web player
-cast list                       # recent recordings
 cast share <id|alias> [alias]   # stage a folder in ~/Downloads for sending
+cast rec [-t "title"]           # what the wrappers call; rarely typed by hand
 ```
 
-They are subcommands rather than four binaries because bare `play` and `list`
-would collide with things already on PATH.
+They are subcommands rather than separate binaries because bare `play` and
+`list` would collide with things already on PATH.
 
 ## There is no install step
 
@@ -33,20 +38,28 @@ Wraps a command and records it, printing how to stop before it starts:
 `ctrl+d` ends, `ctrl+\` pauses capture (before you type a password),
 `ctrl+t` drops a marker.
 
-Recordings land in `~/casts` as `<date>-<time>-<slug>.cast`, the slug taken
-from the title. Idle gaps are capped at two seconds, which matters more than
-it sounds: an agent session is mostly waiting on a model, so uncapped the file
-is mostly dead air. `CAST_DIR` moves where they land.
+Recordings land in `~/casts` as `<date>-<time>-<agent>.cast`, so the id says
+whether claude or codex produced it. Idle gaps are capped at two seconds,
+which matters more than it sounds: an agent session is mostly waiting on a
+model, so uncapped the file is mostly dead air. `CAST_DIR` moves where they
+land.
 
-**Recording has to wrap the agent from outside.** Start sessions with
-`cast rec` instead of `claude`. Nothing running inside a session can record
-that session — by then the TUI is live and nothing wraps it in a PTY.
+**Recording has to wrap the agent from outside** — nothing running inside a
+session can record that session, because by then the TUI is live and nothing
+wraps it in a PTY. That is precisely why the wrappers exist: they do it before
+the agent starts, so it is never something anyone has to invoke.
+
+Two things keep the wrapping safe. `cast rec` resolves the agent to its
+absolute path via PATH, which never sees a shell function, so the wrapper
+cannot recurse into itself. And it refuses to nest: inside a session that is
+already recorded, it runs the agent directly rather than starting a second
+capture.
 
 ## `cast play`
 
-Takes a recording id, an alias, or a path — a selector is required, since
-playing "whatever was most recent" is rarely what is meant. A leading fragment
-of an id works when it is unambiguous, and an ambiguous one says so.
+Takes a recording id, an alias, a printed datetime, or a path — a selector is
+required, since playing "whatever was most recent" is rarely what is meant. A
+leading fragment works when it is unambiguous, and an ambiguous one says so.
 
 Serves the vendored player on a free loopback port. What you get over
 `asciinema play`, which has none of it:
@@ -59,13 +72,15 @@ Serves the vendored player on a free loopback port. What you get over
 ## `cast list`
 
 ```
-Datetime          Alias              Length  Shared
-----------------  -----------------  ------  ----------------
-2026-09-10 18:15  —                  0:00    —
-2026-09-10 18:14  fixing-the-parser  0:03    2026-09-10 18:16
+Datetime          Agent   Alias              Length  Shared
+----------------  ------  -----------------  ------  ----------------
+2026-09-10 18:45  codex   —                  4:11    —
+2026-09-10 18:14  claude  fixing-the-parser   0:03    2026-09-10 18:16
 ```
 
-Aliases and share dates live in `~/casts/index.json`.
+The Datetime it prints is a valid selector — `cast play "2026-09-10 18:45"`
+resolves, because ids and selectors are compared on their letters and digits
+alone. Aliases and share dates live in `~/casts/index.json`.
 
 ## `cast share`
 

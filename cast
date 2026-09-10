@@ -25,6 +25,9 @@ CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME",
 BINDIR = os.path.expanduser("~/.local/bin")
 SKILL_LINK = os.path.expanduser("~/.claude/skills/cast")
 MARKER_KEY = "C-t"
+AGENTS = ("claude", "codex")
+BEGIN = "# >>> cast-kit >>>"
+END = "# <<< cast-kit <<<"
 
 
 # ----------------------------------------------------------------- setup
@@ -72,6 +75,48 @@ def ensure(gif=False):
 
     link(os.path.join(HERE, "cast"), os.path.join(BINDIR, "cast"))
     link(os.path.join(HERE, "skills", "cast"), SKILL_LINK)
+    install_wrappers()
+
+
+
+def rc_path():
+    shell = os.path.basename(os.environ.get("SHELL", "zsh"))
+    return os.path.expanduser("~/.bashrc" if shell == "bash" else "~/.zshrc")
+
+
+def wrapper_block():
+    fns = "\n".join(f'{a}() {{ cast rec {a} "$@"; }}' for a in AGENTS)
+    return (f"{BEGIN}\n"
+            "# Agent sessions are recorded by default. `cast rec` resolves the\n"
+            "# real binary from PATH — never these functions — so they cannot\n"
+            "# recurse. Run one unrecorded with `command claude`.\n"
+            f"{fns}\n{END}\n")
+
+
+def install_wrappers():
+    """Wrap the agents so recording is the default, not something to remember."""
+    rc, block = rc_path(), wrapper_block()
+    try:
+        with open(rc) as fh:
+            body = fh.read()
+    except OSError:
+        body = ""
+
+    if BEGIN in body and END in body:
+        head, rest = body.split(BEGIN, 1)
+        _, tail = rest.split(END, 1)
+        if (head + block + tail.lstrip("\n")) == body:
+            return                                   # already exactly this
+        body = head + block + tail.lstrip("\n")
+        note = f"updated the {', '.join(AGENTS)} wrappers in {rc}"
+    else:
+        body = body.rstrip("\n") + "\n\n" + block if body else block
+        note = (f"wrapping {' and '.join(AGENTS)} in {rc} so sessions record "
+                "by default\n    (open a new shell, or `source " + rc + "`)")
+
+    with open(rc, "w") as fh:
+        fh.write(body)
+    say(note)
 
 
 def link(target, path):
@@ -146,6 +191,12 @@ def cast_id(path):
     return os.path.splitext(os.path.basename(path))[0]
 
 
+def agent_of(path):
+    """Recordings are named <date>-<time>-<agent>.cast."""
+    parts = cast_id(path).split("-", 2)
+    return parts[2] if len(parts) > 2 else "?"
+
+
 def recordings():
     files = glob.glob(os.path.join(CAST_DIR, "*.cast"))
     return sorted(files, key=os.path.getmtime, reverse=True)
@@ -201,7 +252,10 @@ def resolve(selector):
     if len(by_alias) > 1:
         sys.exit(f"cast: alias '{selector}' is on {len(by_alias)} recordings "
                  "— select by id instead, or re-share one under a new alias")
-    hits = [p for p in recordings() if cast_id(p).startswith(selector)]
+    # `cast list` prints "2026-09-10 18:14"; the id is "20260910-181459-claude".
+    # Compare on digits and letters alone so what is on screen can be pasted back.
+    key = lambda t: "".join(c for c in t.lower() if c.isalnum())
+    hits = [p for p in recordings() if key(cast_id(p)).startswith(key(selector))]
     if len(hits) == 1:
         return hits[0]
     if len(hits) > 1:
@@ -219,18 +273,27 @@ def cmd_rec(a):
     if cmd and cmd[0] == "--":
         cmd = cmd[1:]
     cmd = cmd or ["claude"]
-    if not have(cmd[0]):
-        sys.exit(f"cast: {cmd[0]} not found")
 
-    slug = slugify(a.title or cmd[0])
+    # Resolve to the real binary. The shell wrappers call `cast rec claude`,
+    # and shutil.which sees PATH only — never the shell function — so the
+    # wrapper cannot recurse into itself.
+    real = shutil.which(cmd[0])
+    if not real:
+        sys.exit(f"cast: {cmd[0]} not found")
+    agent = slugify(os.path.basename(cmd[0]), fallback="session")
+
+    # Already inside a recording: run the agent, do not nest a second one.
+    if os.environ.get("ASCIINEMA_SESSION"):
+        os.execv(real, [real] + cmd[1:])
+
     os.makedirs(CAST_DIR, exist_ok=True)
     out = os.path.join(CAST_DIR,
-                       f"{time.strftime('%Y%m%d-%H%M%S')}-{slug}.cast")
+                       f"{time.strftime('%Y%m%d-%H%M%S')}-{agent}.cast")
 
     args = ["asciinema", "rec", "--idle-time-limit", str(a.idle)]
     if a.title:
         args += ["--title", a.title]
-    args += ["-c", " ".join(_q(c) for c in cmd), out]
+    args += ["-c", " ".join(_q(c) for c in [real] + cmd[1:]), out]
 
     print(f"recording {cast_id(out)}")
     print("  \033[1mctrl+d\033[0m (or type `exit`) ends the recording")
@@ -295,11 +358,12 @@ def cmd_list(a):
     for p in casts[:a.limit]:
         meta = ix.get(cast_id(p), {})
         rows.append((recorded_at(p).strftime("%Y-%m-%d %H:%M"),
+                     agent_of(p),
                      meta.get("alias") or "—",
                      hhmm(duration(p)),
                      meta.get("shared_at", "—")))
-    head = ("Datetime", "Alias", "Length", "Shared")
-    width = [max(len(r[i]) for r in rows + [head]) for i in range(4)]
+    head = ("Datetime", "Agent", "Alias", "Length", "Shared")
+    width = [max(len(r[i]) for r in rows + [head]) for i in range(len(head))]
     line = lambda r: "  ".join(v.ljust(width[i]) for i, v in enumerate(r)).rstrip()
     print(line(head))
     print("  ".join("-" * w for w in width))
