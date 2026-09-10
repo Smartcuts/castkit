@@ -67,8 +67,8 @@ They are subcommands rather than separate binaries because bare `play` and
 
 The first `cast` anything — or the first use of the `/cast` skill — installs
 asciinema and `agg`, vendors the player from npm, writes the marker-key
-config, links `cast` into `~/.local/bin` and the `/cast` skill into
-`~/.claude/skills`, and wraps the enrolled commands in your shell. Then it
+config, links `cast` into `~/.local/bin`, installs the `/cast` skill for both agents,
+and wraps the enrolled commands in your shell. Then it
 writes `~/.castkit/installed` and never does any of it again: later runs cost
 one small file read.
 
@@ -272,6 +272,10 @@ config to point it somewhere of ours instead.
   six-second recording, 1.04s instead of 6.17s.
 - **A marker key is swallowed.** asciinema intercepts it, so the recorded
   program never sees it. The syntax is `"C-t"`; `"ctrl+t"` is rejected.
+- **The two agents read skills from different places.** Claude Code looks in
+  `~/.claude/skills`, Codex in `~/.agents/skills` — `CLAUDE_HOME` and
+  `AGENTS_HOME` override each. Installing to only one leaves the skill
+  invisible to the other agent, with nothing to indicate why.
 - **`cast` must resolve through its symlink.** It is linked into
   `~/.local/bin`, so `os.path.abspath(__file__)` would give the link's
   directory and the player files would not be found. Hence `realpath`.

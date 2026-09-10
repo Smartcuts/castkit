@@ -49,10 +49,13 @@ Asking about **content** is different, and expected: an alias or a title is
 something only the user knows. Ask for those. Never ask about dependencies,
 paths, ports or formats.
 
-If `cast` is not yet on PATH, run it once by path — that run creates the link:
+If `cast` is not yet on PATH, run it once by path — that run creates the link.
+This skill is installed under `~/.claude/skills` for Claude Code and
+`~/.agents/skills` for Codex, so resolve through whichever exists:
 
 ```bash
-"$(dirname "$(readlink -f ~/.claude/skills/cast)")/../cast" list
+d=$(readlink -f ~/.claude/skills/cast 2>/dev/null || readlink -f ~/.agents/skills/cast)
+"$(dirname "$d")/../cast" list
 ```
 
 ## Recording already happened — you do not start it
