@@ -43,6 +43,9 @@ NON_SESSION_SUBCOMMANDS = {
               "mcp-server", "migrate-rollouts", "plugin", "queue",
               "remote-control", "sandbox", "unarchive", "update"},
 }
+# Bump when a setup step changes. The lock is invalidated by this and by
+# the kit moving, and by nothing else — an unbumped change is invisible to
+# every machine already installed, including your own.
 SETUP_VERSION = 1
 LOCK = os.path.join(CASTKIT_HOME, "installed")
 BEGIN = "# >>> castkit >>>"

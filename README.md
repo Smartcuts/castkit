@@ -38,6 +38,14 @@ also records where the kit lives, so moving or re-cloning the repo re-runs
 setup and repairs the symlinks instead of silently leaving them dangling. To
 force a re-run, delete the file.
 
+**`SETUP_VERSION` is the only thing that invalidates a lock, and it is
+manual.** A moved kit is caught automatically, because the lock records where
+the kit lives. Nothing else is: if you change *what setup does* — add a tool to
+install, rename a config key, change where a symlink points — every existing
+install keeps taking the fast path and never picks the change up. Bump
+`SETUP_VERSION` in the same commit that changes a setup step, or the change
+only reaches machines that have never run castkit.
+
 **Installing is platform-specific.** Homebrew where it exists, otherwise
 `cargo` — slower, since it compiles, but the route that reliably gets
 asciinema 3.x, where distro packages are often a major version behind. Native
@@ -161,6 +169,11 @@ config to point it somewhere of ours instead.
   speed change rebuilds the player at the current position.
 - **`--bind 127.0.0.1` is deliberate.** Python's http.server defaults to
   `0.0.0.0`, which would serve recordings to the whole network.
+- **Editing a setup step means bumping `SETUP_VERSION`.** The lock is only
+  invalidated by that constant or by the kit moving, so a setup change without
+  a bump is invisible to everyone already installed — and invisible to you
+  too, since your own machine takes the fast path as well. Symptom: it works
+  on a fresh install and nowhere else.
 - **Flush before blocking.** `cast play` prints its URL then blocks on the
   server; without an explicit flush, a caller that backgrounds it sees nothing.
 
