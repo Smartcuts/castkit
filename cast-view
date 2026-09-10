@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Play an asciinema recording in the web player, entirely on this machine.
+#
+#   cast-view <recording.cast> [port]
+#
+# Nothing is uploaded and nothing is fetched from a CDN: the player is
+# vendored in vendor/. The server binds to 127.0.0.1 only, so the recording
+# is not reachable from the local network.
+set -euo pipefail
+
+cast=${1:-}
+port=${2:-8777}
+if [ -z "$cast" ]; then
+  echo "usage: cast-view <recording.cast> [port]" >&2
+  exit 1
+fi
+if [ ! -f "$cast" ]; then
+  echo "cast-view: no such file: $cast" >&2
+  exit 1
+fi
+
+dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+abs="$(cd "$(dirname "$cast")" && pwd)/$(basename "$cast")"
+ln -sfn "$abs" "$dir/current.cast"
+
+# --bind 127.0.0.1 matters: the default is 0.0.0.0, which would serve the
+# recording to anyone on the same network.
+python3 -m http.server "$port" --bind 127.0.0.1 --directory "$dir" \
+  >/dev/null 2>&1 &
+server=$!
+trap 'kill "$server" 2>/dev/null || true' EXIT
+
+url="http://127.0.0.1:$port/player.html"
+echo "serving $(basename "$abs")"
+echo "  $url"
+echo "  add ?idle=2 to cap dead air, ?speed=2 to run faster"
+echo "ctrl+c to stop"
+[ -n "${NO_OPEN:-}" ] || command -v open >/dev/null && open "$url" || true
+wait "$server"
