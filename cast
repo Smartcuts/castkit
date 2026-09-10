@@ -12,7 +12,7 @@ Setup happens by itself. There is no install step: every subcommand makes
 sure asciinema, the player and the config are in place before it runs, and
 says nothing when they already are.
 """
-import argparse, glob, json, os, shutil, socket, subprocess, sys, time
+import argparse, glob, json, os, platform, shutil, socket, subprocess, sys, time
 import unicodedata
 from datetime import datetime
 
@@ -41,8 +41,11 @@ NON_SESSION_SUBCOMMANDS = {
               "mcp-server", "migrate-rollouts", "plugin", "queue",
               "remote-control", "sandbox", "unarchive", "update"},
 }
-BEGIN = "# >>> cast-kit >>>"
-END = "# <<< cast-kit <<<"
+SETUP_VERSION = 1
+CASTKIT_HOME = os.path.expanduser("~/.castkit")
+LOCK = os.path.join(CASTKIT_HOME, "installed")
+BEGIN = "# >>> castkit >>>"
+END = "# <<< castkit <<<"
 
 
 # ----------------------------------------------------------------- setup
@@ -55,24 +58,31 @@ def say(msg):
     print(f"  \033[33m·\033[0m {msg}", file=sys.stderr)
 
 
-def ensure(gif=False):
-    """Install whatever is missing. Silent when there is nothing to do."""
-    if not have("asciinema"):
-        say("installing asciinema")
-        if have("brew"):
-            subprocess.run(["brew", "install", "asciinema"], check=True)
-        elif have("cargo"):
-            subprocess.run(["cargo", "install", "--locked", "asciinema"], check=True)
-        else:
-            sys.exit("cast: need homebrew or cargo to install asciinema")
+def setup_done():
+    """Has a complete setup already run? The lock is written last, so its
+    presence means every step below finished — a half-done install leaves no
+    lock and is simply retried."""
+    try:
+        with open(LOCK) as fh:
+            done = json.load(fh)
+    except (OSError, ValueError):
+        return False
+    # A moved or re-cloned kit leaves ~/.local/bin/cast and the skill link
+    # pointing at a path that no longer exists, so the recorded location has
+    # to match before the fast path can be trusted.
+    return (done.get("setup_version") == SETUP_VERSION
+            and done.get("kit") == HERE)
 
-    if gif and not have("agg"):
-        say("installing agg (renders the gif preview)")
-        if have("brew"):
-            subprocess.run(["brew", "install", "agg"], check=True)
-        else:
-            sys.exit("cast: need homebrew to install agg, or install it from\n"
-                     "  https://github.com/asciinema/agg")
+
+def ensure():
+    """Install everything, once. Later runs cost one small file read."""
+    if setup_done():
+        return
+
+    say("first run — setting up castkit")
+    install_tool("asciinema", brew="asciinema", cargo=["asciinema"])
+    install_tool("agg", brew="agg",
+                 cargo=["--git", "https://github.com/asciinema/agg"])
 
     if not os.path.exists(os.path.join(HERE, "vendor", "asciinema-player.min.js")):
         say("vendoring the player")
@@ -90,83 +100,42 @@ def ensure(gif=False):
 
     link(os.path.join(HERE, "cast"), os.path.join(BINDIR, "cast"))
     link(os.path.join(HERE, "skills", "cast"), SKILL_LINK)
-    install_wrappers()
+    wrapped = install_wrappers()
+
+    # Last. Everything above succeeded, or an exception left no lock behind.
+    os.makedirs(os.path.dirname(LOCK), exist_ok=True)
+    with open(LOCK, "w") as fh:
+        json.dump({"setup_version": SETUP_VERSION,
+                   "installed_at": datetime.now().isoformat(timespec="seconds"),
+                   "platform": f"{platform.system()}-{platform.machine()}",
+                   "kit": HERE,
+                   "wrappers": wrapped}, fh, indent=2)
+    say(f"setup complete — recorded in {LOCK}")
 
 
+def install_tool(name, brew, cargo):
+    """Install a Rust CLI the way this platform actually installs things."""
+    if have(name):
+        return
+    system = platform.system()
+    if system == "Windows":
+        sys.exit(f"cast: {name} has no native Windows build — run the kit "
+                 "under WSL")
 
-
-def is_session(agent, argv):
-    """Is this an interactive agent session, the only thing worth recording?
-
-    Anything else is left alone entirely: a recorded process has its stdout
-    captured into the cast rather than passed through, so recording
-    `claude -p` or a piped run would hand the caller asciinema's diagnostics
-    where its output should be.
-    """
-    # The real safety net. Catches pipes, redirects, scripts, CI, and the
-    # stdio servers, whatever they are called this month.
-    if not (sys.stdin.isatty() and sys.stdout.isatty()):
-        return False
-    if NON_SESSION_FLAGS & set(argv):
-        return False
-    first = next((x for x in argv if not x.startswith("-")), None)
-    # An unrecognised word is a prompt or a flag's value, not a subcommand,
-    # so unknown things record. Erring that way costs a stray recording;
-    # erring the other way corrupts someone's output.
-    return first not in NON_SESSION_SUBCOMMANDS.get(agent, ())
-
-
-def rc_path():
-    shell = os.path.basename(os.environ.get("SHELL", "zsh"))
-    return os.path.expanduser("~/.bashrc" if shell == "bash" else "~/.zshrc")
-
-
-def wrapper_block():
-    fns = "\n".join(f'{a}() {{ cast rec {a} "$@"; }}' for a in AGENTS)
-    return (f"{BEGIN}\n"
-            "# Agent sessions are recorded by default. `cast rec` resolves the\n"
-            "# real binary from PATH — never these functions — so they cannot\n"
-            "# recurse. Run one unrecorded with `command claude`.\n"
-            f"{fns}\n{END}\n")
-
-
-def install_wrappers():
-    """Wrap the agents so recording is the default, not something to remember."""
-    rc, block = rc_path(), wrapper_block()
-    try:
-        with open(rc) as fh:
-            body = fh.read()
-    except OSError:
-        body = ""
-
-    if BEGIN in body and END in body:
-        head, rest = body.split(BEGIN, 1)
-        _, tail = rest.split(END, 1)
-        if (head + block + tail.lstrip("\n")) == body:
-            return                                   # already exactly this
-        body = head + block + tail.lstrip("\n")
-        note = f"updated the {', '.join(AGENTS)} wrappers in {rc}"
+    say(f"installing {name} ({system} {platform.machine()})")
+    if have("brew"):
+        subprocess.run(["brew", "install", brew], check=True)
+    elif have("cargo"):
+        # Slower — it compiles — but it is the route that reliably gets 3.x.
+        subprocess.run(["cargo", "install", "--locked"] + cargo, check=True)
     else:
-        body = body.rstrip("\n") + "\n\n" + block if body else block
-        note = (f"wrapping {' and '.join(AGENTS)} in {rc} so sessions record "
-                "by default\n    (open a new shell, or `source " + rc + "`)")
+        hint = ("  Distro packages are often a major version behind; prefer\n"
+                "  cargo or a release binary.\n" if system == "Linux" else "")
+        sys.exit(f"cast: cannot install {name} — no brew and no cargo.\n{hint}"
+                 f"  https://github.com/asciinema/{name}/releases")
 
-    with open(rc, "w") as fh:
-        fh.write(body)
-    say(note)
-
-
-def link(target, path):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    if os.path.islink(path):
-        if os.readlink(path) == target:
-            return
-    elif os.path.exists(path):
-        return                      # something of the user's; leave it alone
-    say(f"linking {path}")
-    if os.path.islink(path):
-        os.unlink(path)
-    os.symlink(target, path)
+    if not have(name):
+        sys.exit(f"cast: installed {name} but it is not on PATH")
 
 
 def vendor_player():
@@ -193,6 +162,118 @@ def vendor_player():
             fh.write(version + "\n")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+
+def link(target, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.islink(path):
+        if os.readlink(path) == target:
+            return
+    elif os.path.exists(path):
+        return                      # something of the user's; leave it alone
+    say(f"linking {path}")
+    if os.path.islink(path):
+        os.unlink(path)
+    os.symlink(target, path)
+
+
+def is_session(agent, argv):
+    """Is this an interactive agent session, the only thing worth recording?
+
+    Anything else is left alone entirely: a recorded process has its stdout
+    captured into the cast rather than passed through, so recording
+    `claude -p` or a piped run would hand the caller asciinema's diagnostics
+    where its output should be.
+    """
+    # The real safety net. Catches pipes, redirects, scripts, CI, and the
+    # stdio servers, whatever they are called this month.
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        return False
+    if NON_SESSION_FLAGS & set(argv):
+        return False
+    first = next((x for x in argv if not x.startswith("-")), None)
+    # An unrecognised word is a prompt or a flag's value, not a subcommand,
+    # so unknown things record. Erring that way costs a stray recording;
+    # erring the other way corrupts someone's output.
+    return first not in NON_SESSION_SUBCOMMANDS.get(agent, ())
+
+
+# ------------------------------------------------------------ shell wrappers
+
+def preferred_shell():
+    """The login shell from $SHELL — what the user actually types in."""
+    return os.path.basename(os.environ.get("SHELL", "")) or "zsh"
+
+
+def rc_path(shell):
+    if shell == "fish":
+        return os.path.expanduser("~/.config/fish/config.fish")
+    if shell == "bash":
+        # A macOS login shell reads .bash_profile and never .bashrc, so
+        # writing to .bashrc there produces a wrapper that never loads.
+        candidates = ["~/.bash_profile", "~/.bashrc"]
+        if platform.system() != "Darwin":
+            candidates.reverse()
+        for c in candidates:
+            if os.path.exists(os.path.expanduser(c)):
+                return os.path.expanduser(c)
+        return os.path.expanduser(candidates[0])
+    if shell in ("zsh", "sh", "ksh"):
+        return os.path.expanduser("~/.zshrc" if shell == "zsh" else "~/.profile")
+    return None                                     # unsupported
+
+
+def wrapper_block(shell):
+    note = ("# Agent sessions are recorded by default. `cast rec` resolves the\n"
+            "# real binary from PATH — never these functions — so they cannot\n"
+            "# recurse, and it hands off untouched for anything that is not an\n"
+            f"# interactive session. Run one unrecorded with `command {AGENTS[0]}`.\n")
+    if shell == "fish":
+        fns = "\n".join(f"function {a}; cast rec {a} $argv; end" for a in AGENTS)
+    else:
+        fns = "\n".join(f'{a}() {{ cast rec {a} "$@"; }}' for a in AGENTS)
+    return f"{BEGIN}\n{note}{fns}\n{END}\n"
+
+
+def install_wrappers():
+    """Wrap the agents so recording is the default. Returns what was done."""
+    shell = preferred_shell()
+    rc = rc_path(shell)
+    if rc is None:
+        say(f"unsupported login shell '{shell}' — wrappers not installed.\n"
+            f"    Define {' and '.join(AGENTS)} yourself as: cast rec <agent> <args>")
+        return {"shell": shell, "rc": None, "state": "unsupported"}
+
+    block = wrapper_block(shell)
+    try:
+        with open(rc) as fh:
+            body = fh.read()
+    except OSError:
+        body = ""
+
+    if BEGIN in body and END in body:
+        head, rest = body.split(BEGIN, 1)
+        _, tail = rest.split(END, 1)
+        rebuilt = head + block + tail.lstrip("\n")
+        if rebuilt == body:
+            return {"shell": shell, "rc": rc, "state": "present"}
+        body = rebuilt
+        note = f"updated the {', '.join(AGENTS)} wrappers in {rc}"
+    else:
+        body = (body.rstrip("\n") + "\n\n" + block) if body else block
+        note = (f"wrapping {' and '.join(AGENTS)} in {rc} ({shell}) so sessions "
+                f"record by default\n    (open a new shell, or `source {rc}`)")
+
+    try:
+        os.makedirs(os.path.dirname(rc), exist_ok=True)
+        with open(rc, "w") as fh:
+            fh.write(body)
+    except OSError as e:
+        sys.exit(f"cast: cannot write {rc}: {e.strerror}\n"
+                 f"  fix the permissions and run any cast command again, or add\n"
+                 f"  the wrappers yourself:\n\n{block}")
+    say(note)
+    return {"shell": shell, "rc": rc, "state": "written"}
 
 
 # ------------------------------------------------------------- recordings
@@ -410,7 +491,7 @@ def cmd_list(a):
 
 
 def cmd_share(a):
-    ensure(gif=True)
+    ensure()
     path = resolve(a.selector)
     cid = cast_id(path)
     ix = load_index()

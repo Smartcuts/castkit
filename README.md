@@ -1,4 +1,4 @@
-# cast-kit
+# castkit
 
 Record a terminal session, play it back with real controls, and hand it to
 someone — without any of it touching a third-party service.
@@ -24,13 +24,30 @@ cast rec [-t "title"]           # what the wrappers call; rarely typed by hand
 They are subcommands rather than separate binaries because bare `play` and
 `list` would collide with things already on PATH.
 
-## There is no install step
+## Setup runs once, on the first command
 
-Every subcommand installs what it needs and then says nothing about it:
-asciinema, `agg` for the gif, the vendored player, the marker-key config, and
-the `cast` link in `~/.local/bin`. The first run on a new machine sets the
-machine up; every run after that is silent. From a Claude Code session the
-`/cast` skill does the same, without asking.
+The first `cast` anything — or the first use of the `/cast` skill — installs
+asciinema and `agg`, vendors the player, writes the marker-key config, links
+`cast` into `~/.local/bin` and the skill into `~/.claude/skills`, and wraps
+your agents in your shell. Then it writes `~/.castkit/installed` and never
+does any of it again: later runs cost one small file read.
+
+**The lock is written last.** If any step fails there is no lock, so the next
+command retries the whole thing rather than leaving you half-installed. It
+also records where the kit lives, so moving or re-cloning the repo re-runs
+setup and repairs the symlinks instead of silently leaving them dangling. To
+force a re-run, delete the file.
+
+**Installing is platform-specific.** Homebrew where it exists, otherwise
+`cargo` — slower, since it compiles, but the route that reliably gets
+asciinema 3.x, where distro packages are often a major version behind. Native
+Windows has no build; use WSL.
+
+**Wrapping follows your login shell**, read from `$SHELL`: `~/.zshrc` for zsh,
+fish's own `function ... end` syntax in `~/.config/fish/config.fish`, and for
+bash `~/.bash_profile` on macOS — where a login shell never reads `~/.bashrc`,
+so a wrapper written there would never load. An unrecognised shell is reported
+with the snippet to add by hand, and does not block the rest of setup.
 
 ## `cast rec`
 

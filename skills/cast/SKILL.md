@@ -2,7 +2,7 @@
 name: cast
 description: |
   Record, play, list and share terminal sessions as asciinema casts, using the
-  local cast-kit — nothing is uploaded to a third-party service. Use when asked
+  local castkit — nothing is uploaded to a third-party service. Use when asked
   to record a session, replay or watch a recording, list recordings, or share
   an agent session with someone. Dependencies install themselves; never ask the
   user about setup.
@@ -22,11 +22,15 @@ cast share <id|alias> [alias]  attach an alias, stage a folder in ~/Downloads
 
 ## Setup is automatic — never ask about it
 
-There is no install step. Every subcommand installs what it needs first
-(asciinema, agg for the gif, the vendored player, the marker-key config, the
-PATH link) and is silent when everything is already there. So just run the
-command. Do not check dependencies, do not offer to install anything, do not
-ask which options the user wants.
+There is no install step. The first command installs everything — asciinema,
+agg, the vendored player, the marker-key config, the PATH link, and the shell
+wrappers — then records it in `~/.castkit/installed` and never repeats it.
+Later runs read that one file and get on with it.
+
+So just run the command. Do not check dependencies, do not offer to install
+anything, do not ask which options the user wants. If the first run prints a
+few setup lines, that is expected; mention only that a new shell is needed for
+the wrappers to take effect.
 
 Asking about **content** is different, and expected: an alias or a title is
 something only the user knows. Ask for those. Never ask about dependencies,
