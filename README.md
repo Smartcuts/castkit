@@ -76,8 +76,16 @@ Attaches an alias to the recording and writes `~/Downloads/<alias>/`:
 - `<alias>.gif` — a preview, for pasting where an animation renders inline:
   a PR description, an issue, a Slack message.
 
-Given no alias it reuses the one already attached, or derives one from the
-recording's title.
+Pass the alias as ordinary text — `cast share 20260910-1814 "Fixing the
+parser"` writes `~/Downloads/fixing-the-parser/`. Accents fold to ASCII,
+punctuation and emoji become separators, the result is capped at 40
+characters, and something that normalises to nothing falls back to the
+recording id. Given no alias at all it reuses the one already attached, or
+derives one from the recording's title.
+
+An alias is also a selector, so it has to be unique: sharing under a name
+another recording already holds is refused, and names the recording holding
+it. Re-sharing the same recording under its own alias just re-stages it.
 
 ## Why there is no asciinema-server here
 

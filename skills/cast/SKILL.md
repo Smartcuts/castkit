@@ -28,6 +28,10 @@ PATH link) and is silent when everything is already there. So just run the
 command. Do not check dependencies, do not offer to install anything, do not
 ask which options the user wants.
 
+Asking about **content** is different, and expected: an alias or a title is
+something only the user knows. Ask for those. Never ask about dependencies,
+paths, ports or formats.
+
 If `cast` is not yet on PATH, run it once by path — that run creates the link:
 
 ```bash
@@ -52,21 +56,42 @@ echo "${ASCIINEMA_SESSION:-not recorded}"
 Set means it is being captured. Unset means it is not — say so plainly rather
 than letting the user assume the conversation is being saved.
 
+## Listing
+
+`cast list` prints the recent recordings as
+`Datetime | Alias | Length | Shared`. Run it whenever the user refers to a
+recording vaguely — "the one from this morning", "the parser one" — and show
+them the table rather than guessing which they mean.
+
 ## Playing
 
-`cast play` needs a selector: a recording id, an alias, or a path. Run
-`cast list` first and use an id from the Datetime column's recording, or an
-alias. A leading fragment of an id is enough when it is unambiguous.
+`cast play` needs a selector: a recording id, an alias, or a path. Get one
+from `cast list`. A leading fragment of an id resolves when it is unambiguous,
+and says so when it is not.
 
 It serves a local page and blocks until ctrl+c, so run it in the background or
 hand the command to the user rather than hanging the turn.
 
 ## Sharing
 
-`cast share <id> <alias>` attaches the alias, and writes
+`cast share <selector> <alias>` attaches the alias and writes
 `~/Downloads/<alias>/` holding `<alias>.cast` and `<alias>.gif`. The `.cast` is
-the artifact to attach; the `.gif` is the preview to paste inline where it will
-render. Give the user the folder path when it finishes.
+the artifact to attach; the `.gif` is the preview to paste where an animation
+renders inline. Give the user the folder path when it finishes.
+
+**Ask for the alias if the user has not given one.** It is a name a person
+will read in Slack, so it is theirs to choose, not yours to invent. One short
+question, and offer the recording's title as the obvious default.
+
+**Pass what they say, verbatim.** Do not slugify it yourself — the command
+normalises it, and doing it twice in two places is how the two drift apart:
+
+    cast share 20260910-1814 "Fixing the parser"
+    -> ~/Downloads/fixing-the-parser/
+
+Accents are folded to ASCII, punctuation and emoji become separators, the
+result is capped, and an alias that normalises to nothing falls back to the
+recording id. So a title typed naturally is always safe to hand over.
 
 Say once, plainly, that both files hold everything that was on screen in
 cleartext, so they should be read before being sent.

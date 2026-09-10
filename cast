@@ -13,6 +13,7 @@ sure asciinema, the player and the config are in place before it runs, and
 says nothing when they already are.
 """
 import argparse, glob, json, os, shutil, socket, subprocess, sys, time
+import unicodedata
 from datetime import datetime
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -114,6 +115,19 @@ def vendor_player():
 
 # ------------------------------------------------------------- recordings
 
+def slugify(text, fallback="session", limit=40):
+    """Human text -> a safe, portable name: 'Fixing the Parser!' -> 'fixing-the-parser'.
+
+    Accents are folded rather than kept: these names become directory names and
+    filenames that get mailed around, so they stay ASCII.
+    """
+    folded = unicodedata.normalize("NFKD", str(text))
+    folded = folded.encode("ascii", "ignore").decode("ascii")
+    parts = "".join(c if c.isalnum() else "-" for c in folded.lower()).split("-")
+    out = "-".join(p for p in parts if p)[:limit].strip("-")
+    return out or fallback
+
+
 def load_index():
     try:
         with open(INDEX) as fh:
@@ -180,11 +194,13 @@ def resolve(selector):
     if os.path.isfile(selector):
         return os.path.abspath(selector)
     ix = load_index()
-    for cid, meta in ix.items():
-        if meta.get("alias") == selector:
-            hit = os.path.join(CAST_DIR, cid + ".cast")
-            if os.path.isfile(hit):
-                return hit
+    by_alias = [cid for cid, m in ix.items() if m.get("alias") == selector
+                and os.path.isfile(os.path.join(CAST_DIR, cid + ".cast"))]
+    if len(by_alias) == 1:
+        return os.path.join(CAST_DIR, by_alias[0] + ".cast")
+    if len(by_alias) > 1:
+        sys.exit(f"cast: alias '{selector}' is on {len(by_alias)} recordings "
+                 "— select by id instead, or re-share one under a new alias")
     hits = [p for p in recordings() if cast_id(p).startswith(selector)]
     if len(hits) == 1:
         return hits[0]
@@ -206,9 +222,7 @@ def cmd_rec(a):
     if not have(cmd[0]):
         sys.exit(f"cast: {cmd[0]} not found")
 
-    slug = "".join(c if c.isalnum() else "-"
-                   for c in (a.title or cmd[0]).lower()).strip("-")[:40]
-    slug = "-".join(f for f in slug.split("-") if f) or "session"
+    slug = slugify(a.title or cmd[0])
     os.makedirs(CAST_DIR, exist_ok=True)
     out = os.path.join(CAST_DIR,
                        f"{time.strftime('%Y%m%d-%H%M%S')}-{slug}.cast")
@@ -303,8 +317,14 @@ def cmd_share(a):
     if not alias:
         hdr, _ = header_and_events(path)
         alias = hdr.get("title") or "-".join(cid.split("-")[2:]) or cid
-    alias = "-".join(f for f in "".join(
-        c if c.isalnum() else "-" for c in alias.lower()).split("-") if f)
+    alias = slugify(alias, fallback=cid)
+
+    # An alias is a selector and a folder name. Letting two recordings share
+    # one silently clobbers the first folder and makes `play <alias>` a guess.
+    taken = [c for c, m in ix.items() if m.get("alias") == alias and c != cid]
+    if taken:
+        sys.exit(f"cast: alias '{alias}' is already on {taken[0]}\n"
+                 f"  pick another, or re-share that one under a new alias")
 
     folder = os.path.join(os.path.expanduser("~/Downloads"), alias)
     os.makedirs(folder, exist_ok=True)
