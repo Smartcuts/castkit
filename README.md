@@ -10,37 +10,34 @@ text stays selectable on playback.
 ## Install
 
 ```bash
-# Installation script
 curl -fsSL https://raw.githubusercontent.com/Smartcuts/castkit/main/install.sh | sh
 
-# Env setup
-cast
+# Checks installation
+cast -h
 ```
 
-Then open a new shell. That is the whole install: it unpacks the kit into
-`~/.castkit/app` and runs it once, and that first run installs asciinema and
-`agg`, links `cast` onto your PATH and the `/cast` skill into `~/.claude`, and
-wraps your agents in your shell.
+The installation script does three things:
 
-**Re-run the same line to update.** The app directory is replaced; recordings,
-the enrolled set and the setup lock live beside it and are never touched. A
-failed download changes nothing — the new copy is unpacked alongside the old
-one and swapped only once it is complete.
+1. Installs dependencies and necessary tools, such as `asciinema` and
+   `agg`.
+2. Installs the castkit binary and an utility skill to pair with it.
+3. Enrolls your local coding agents in (default codex and claude
+   code).
 
-Needs `curl`, `tar` and `python3`, on macOS or Linux. Windows needs WSL.
+The third step, enrollment, wraps coding agent binary with our own
+tooling so that every coding session are automatically recorded from
+now on. You can also manually enroll a coding agent:
 
-The wrapper block puts `~/.local/bin` on your PATH itself, so a new shell has
-`cast` whether or not you had it there before.
-
-From a clone instead, which is the same thing without the download — the kit
-runs from wherever it lives:
-
-```bash
-git clone https://github.com/Smartcuts/castkit ~/castkit && ~/castkit/cast list
+```
+cast enroll codex
 ```
 
-`CASTKIT_URL` overrides where the installer fetches from, and `CASTKIT_REF`
-picks a branch or tag.
+And similarly, you can disenroll a coding agent, to not auto-record
+its future sessions:
+
+```
+cast disenroll codex
+```
 
 ## Sessions record themselves
 
@@ -57,6 +54,7 @@ cast share <id|alias> [alias]   # stage a folder in ~/Downloads for sending
 cast purge                      # delete recordings older than two months
 cast enroll <command>           # record another CLI's sessions too
 cast disenroll <command>        # stop recording one
+cast version                    # versions and paths, for a bug report
 cast rec [-t "title"]           # what the wrappers call; rarely typed by hand
 ```
 
@@ -67,8 +65,8 @@ They are subcommands rather than separate binaries because bare `play` and
 
 The first `cast` anything — or the first use of the `/cast` skill — installs
 asciinema and `agg`, vendors the player from npm, writes the marker-key
-config, links `cast` into `~/.local/bin`, installs the `/cast` skill for both agents,
-and wraps the enrolled commands in your shell. Then it
+config, links `cast` into `~/.local/bin` and the `/cast` skill into
+`~/.claude/skills`, and wraps the enrolled commands in your shell. Then it
 writes `~/.castkit/installed` and never does any of it again: later runs cost
 one small file read.
 
@@ -272,19 +270,9 @@ config to point it somewhere of ours instead.
   six-second recording, 1.04s instead of 6.17s.
 - **A marker key is swallowed.** asciinema intercepts it, so the recorded
   program never sees it. The syntax is `"C-t"`; `"ctrl+t"` is rejected.
-- **The two agents read skills from different places.** Claude Code looks in
-  `~/.claude/skills`, Codex in `~/.agents/skills` — `CLAUDE_HOME` and
-  `AGENTS_HOME` override each. Installing to only one leaves the skill
-  invisible to the other agent, with nothing to indicate why.
 - **`cast` must resolve through its symlink.** It is linked into
   `~/.local/bin`, so `os.path.abspath(__file__)` would give the link's
   directory and the player files would not be found. Hence `realpath`.
-- **A wrapper must never break the command it shadows.** `claude() { cast rec
-  claude "$@"; }` turns into `command not found: cast` the moment PATH lacks
-  `~/.local/bin` — installing castkit would stop your agent working at all.
-  So the wrappers call cast by absolute path, and fall back to `command
-  claude` when it is missing: removing castkit costs you the recording, not
-  the agent.
 - **The viewer layout is load-bearing.** `main` is `flex: 1` with
   `min-height: 0` and the player uses `fit: "both"`. Under `fit: "width"` an
   80×24 terminal scales to fill the page, the player grows taller than the
@@ -318,6 +306,31 @@ Both symlinks point at wherever the kit lives — `~/.castkit/app` from the
 installer, or your clone. Either way it is not disposable after install; move
 it and the next command repairs the links.
 
+## `cast version`
+
+```
+castkit    7374cb1 (checkout)
+kit        /Users/scott/Projects/smartcuts/castkit
+setup      version 3
+player     3.17.0
+asciinema  asciinema 3.2.1
+agg        agg 1.9.0
+python     3.11.6
+platform   Darwin arm64
+shell      zsh
+enrolled   claude, codex
+sessions   10 · 4.4 MB
+```
+
+The version is derived, never declared. In a checkout it is `git describe`; in
+an installed copy it is the commit `install.sh` recorded when it fetched the
+tarball, which a GitHub archive otherwise cannot tell you because it carries
+no `.git`. A hardcoded version constant would be one more thing to remember to
+bump, and a stale one is worse than none — the same trap `SETUP_VERSION` sets,
+which at least has the excuse of needing human judgement.
+
+`cast --version` prints just the first line.
+
 ## Licence and third-party code
 
 castkit is Apache-2.0, © Smartcuts. See [LICENSE](LICENSE).
@@ -343,3 +356,15 @@ someone will have to answer for it.
 A `.cast`, and the `.gif` rendered from it, hold every character that was on
 screen: keys, tokens printed in an error, the lot. Treat one like a document
 containing our source code, because it is one. Read it before sending it.
+
+## Development
+
+From a clone instead, which is the same thing without the download — the kit
+runs from wherever it lives:
+
+```bash
+git clone https://github.com/Smartcuts/castkit ~/castkit && ~/castkit/cast list
+```
+
+`CASTKIT_URL` overrides where the installer fetches from, and `CASTKIT_REF`
+picks a branch or tag.

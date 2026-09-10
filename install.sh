@@ -47,7 +47,15 @@ rm -rf "$APP.old"
 mv "$APP.new" "$APP"
 rm -rf "$APP.old"
 chmod +x "$APP/cast"
-say "unpacked into $APP"
+
+# Record what was installed. A tarball has no .git, so without this an
+# installed copy cannot say which commit it is — and "re-run the install line"
+# is the only update path, so that question comes up.
+api=$(printf '%s' "$REPO" | sed 's|https://github.com/|https://api.github.com/repos/|')
+curl -fsSL -H 'Accept: application/vnd.github.sha' "$api/commits/$REF" \
+  -o "$APP/.version" 2>/dev/null || printf '%s' "$REF" > "$APP/.version"
+
+say "unpacked into $APP ($(cut -c1-12 < "$APP/.version"))"
 
 # Setup itself lives in `cast`, not here — it is the same code that repairs a
 # moved install or a dependency that vanished, so duplicating it in shell

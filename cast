@@ -837,12 +837,72 @@ def cmd_disenroll(a):
         print(f"  open a new shell, or `source {state['rc']}`")
 
 
+
+def version():
+    """Derived, never declared.
+
+    A hardcoded version constant is one more thing to remember to bump, and a
+    stale one is worse than none — so this reads what is actually here: git
+    when the kit is a checkout, and what install.sh recorded when it is not.
+    """
+    if os.path.isdir(os.path.join(HERE, ".git")):
+        try:
+            out = subprocess.run(
+                ["git", "-C", HERE, "describe", "--tags", "--always", "--dirty"],
+                capture_output=True, text=True, timeout=5)
+            if out.returncode == 0 and out.stdout.strip():
+                return out.stdout.strip() + " (checkout)"
+        except (OSError, subprocess.SubprocessError):
+            pass
+    try:
+        with open(os.path.join(HERE, ".version")) as fh:
+            return fh.read().strip()[:12] + " (installed)"
+    except OSError:
+        return "unknown"
+
+
+def tool_version(prog):
+    if not have(prog):
+        return "not installed"
+    try:
+        out = subprocess.run([prog, "--version"], capture_output=True,
+                             text=True, timeout=5)
+        return (out.stdout or out.stderr).strip().splitlines()[0]
+    except (OSError, subprocess.SubprocessError, IndexError):
+        return "?"
+
+
+def cmd_version(a):
+    total, _ = storage()
+    rows = [
+        ("castkit", version()),
+        ("kit", HERE),
+        ("setup", f"version {SETUP_VERSION}"
+                  + ("" if setup_done() else " — not yet run here")),
+        ("player", open(os.path.join(HERE, "vendor", "VERSION")).read().strip()
+                   if os.path.exists(os.path.join(HERE, "vendor", "VERSION"))
+                   else "not vendored"),
+        ("asciinema", tool_version("asciinema")),
+        ("agg", tool_version("agg")),
+        ("python", platform.python_version()),
+        ("platform", f"{platform.system()} {platform.machine()}"),
+        ("shell", preferred_shell()),
+        ("enrolled", ", ".join(enrolled()) or "nothing"),
+        ("sessions", f"{len(recordings())} · {human(total)}"),
+    ]
+    w = max(len(k) for k, _ in rows)
+    for k, v in rows:
+        print(f"  {k.ljust(w)}  {v}")
+
+
 # ------------------------------------------------------------------ entry
 
 def main():
     ap = argparse.ArgumentParser(prog="cast", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    sub = ap.add_subparsers(dest="cmd", required=True)
+    ap.add_argument("-V", "--version", action="store_true",
+                    help="print the castkit version and exit")
+    sub = ap.add_subparsers(dest="cmd", required=False)
 
     p = sub.add_parser("rec", help="start recording")
     p.add_argument("-t", "--title")
@@ -867,6 +927,9 @@ def main():
     p.add_argument("-y", "--yes", action="store_true", help="skip the prompt")
     p.set_defaults(fn=cmd_purge)
 
+    p = sub.add_parser("version", help="versions and paths, for a bug report")
+    p.set_defaults(fn=cmd_version)
+
     p = sub.add_parser("enroll", help="record a command's sessions automatically")
     p.add_argument("name", nargs="?", help="omit to list what is enrolled")
     p.set_defaults(fn=cmd_enroll)
@@ -881,6 +944,11 @@ def main():
     p.set_defaults(fn=cmd_share)
 
     a = ap.parse_args()
+    if getattr(a, "version", False) and not a.cmd:
+        print(version())
+        return
+    if not a.cmd:
+        ap.error("a subcommand is required")
     a.fn(a)
 
 

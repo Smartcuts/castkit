@@ -1,1 +1,7 @@
 current.cast
+
+# editor leftovers
+#*#
+.#*
+*~
+.DS_Store
