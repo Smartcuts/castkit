@@ -7,6 +7,8 @@ Built around [asciinema](https://asciinema.org), which records the terminal as
 text rather than pixels: a session is a small, greppable JSON file whose text
 stays selectable on playback.
 
+[github.com/Smartcuts/castkit](https://github.com/Smartcuts/castkit)
+
 ## Install
 
 ```bash
@@ -25,15 +27,18 @@ one and swapped only once it is complete.
 
 Needs `curl`, `tar` and `python3`, on macOS or Linux. Windows needs WSL.
 
-**The repo has to be reachable for that URL to work.** It has no remote yet,
-and a private GitHub repo will not serve `raw.githubusercontent.com` without a
-token — so this either wants a public repo or a different host.
+If `~/.local/bin` is not on your PATH the installer says so and prints the
+line to add.
 
-From a clone instead, which is the same thing without the download:
+From a clone instead, which is the same thing without the download — the kit
+runs from wherever it lives:
 
 ```bash
-git clone <url> ~/castkit && ~/castkit/cast list
+git clone https://github.com/Smartcuts/castkit ~/castkit && ~/castkit/cast list
 ```
+
+`CASTKIT_URL` overrides where the installer fetches from, and `CASTKIT_REF`
+picks a branch or tag.
 
 ## Sessions record themselves
 
@@ -229,6 +234,23 @@ derives one from the recording's title.
 An alias is also a selector, so it has to be unique: sharing under a name
 another recording already holds is refused, and names the recording holding
 it. Re-sharing the same recording under its own alias just re-stages it.
+
+### What the person receiving it does
+
+Attach the `.cast`, paste the `.gif`. On the other end, a `.cast` is only a
+file until something can play it — so tell them one of these:
+
+```bash
+# already have asciinema
+asciinema play <file>.cast
+
+# or get the kit, and with it seeking, speed and the dead-air control
+curl -fsSL https://raw.githubusercontent.com/Smartcuts/castkit/main/install.sh | sh
+cast play <file>.cast
+```
+
+Nothing is uploaded either way: the file goes over whatever you already use,
+and the player runs on their machine.
 
 ## Why there is no asciinema-server here
 
