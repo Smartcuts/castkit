@@ -306,6 +306,26 @@ Both symlinks point at wherever the kit lives — `~/.castkit/app` from the
 installer, or your clone. Either way it is not disposable after install; move
 it and the next command repairs the links.
 
+## Licence and third-party code
+
+castkit is Apache-2.0, © Smartcuts. See [LICENSE](LICENSE).
+
+**Redistributed here:** `vendor/` holds
+[asciinema-player](https://github.com/asciinema/asciinema-player) — Apache-2.0,
+© Marcin Kulik — shipped verbatim, with its licence kept alongside it at
+`vendor/LICENSE.asciinema-player`.
+
+**Not redistributed:** the [asciinema](https://github.com/asciinema/asciinema)
+CLI and [agg](https://github.com/asciinema/agg) are both GPL-3.0, and castkit
+neither bundles nor links them. It runs them as separate processes, and the
+installer has your own machine fetch them from Homebrew or cargo. Invoking a
+program at arm's length does not make a combined work, and nothing here
+distributes them — so no copyleft obligation reaches castkit, your recordings,
+or anything you build with it.
+
+That paragraph exists because a licence scan will flag "GPL dependency" and
+someone will have to answer for it.
+
 ## Recordings contain everything
 
 A `.cast`, and the `.gif` rendered from it, hold every character that was on
