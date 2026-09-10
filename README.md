@@ -7,19 +7,38 @@ Built around [asciinema](https://asciinema.org), which records the terminal as
 text rather than pixels: a session is a small, greppable JSON file whose text
 stays selectable on playback.
 
+## Getting it
+
+Clone the repo and run the command once from the checkout. That first run is
+the install — it sets everything up and links `cast` onto your PATH, so every
+run after that is just `cast`.
+
+```bash
+git clone <url> ~/castkit
+~/castkit/cast list
+```
+
+There is nothing else to run: no `install` script, no `make`, no flags. The
+repo has no remote yet, so `<url>` does not exist — until it is pushed
+somewhere, a second machine has to get the directory another way.
+
+Then open a new shell, so the wrappers load.
+
 ## Sessions record themselves
 
 Setup wraps `claude` and `codex` in your shell so both run under `cast rec`.
 Every session started from a fresh shell is captured from its first prompt —
-there is no command to remember and nothing to decide. Run one unrecorded with
-`command claude`.
+there is no command to remember and nothing to decide. Those two are only the
+default; `cast enroll` records any other CLI, and `command claude` runs one
+unrecorded.
 
 ```bash
 cast list                       # browse recordings (table when piped)
-cast purge                      # delete recordings older than two months
-cast enroll <command>           # record another CLI's sessions too
 cast play <id|alias>            # play in the web player
 cast share <id|alias> [alias]   # stage a folder in ~/Downloads for sending
+cast purge                      # delete recordings older than two months
+cast enroll <command>           # record another CLI's sessions too
+cast disenroll <command>        # stop recording one
 cast rec [-t "title"]           # what the wrappers call; rarely typed by hand
 ```
 
@@ -29,10 +48,15 @@ They are subcommands rather than separate binaries because bare `play` and
 ## Setup runs once, on the first command
 
 The first `cast` anything — or the first use of the `/cast` skill — installs
-asciinema and `agg`, vendors the player, writes the marker-key config, links
-`cast` into `~/.local/bin` and the skill into `~/.claude/skills`, and wraps
-your agents in your shell. Then it writes `~/.castkit/installed` and never
-does any of it again: later runs cost one small file read.
+asciinema and `agg`, vendors the player from npm, writes the marker-key
+config, links `cast` into `~/.local/bin` and the `/cast` skill into
+`~/.claude/skills`, and wraps the enrolled commands in your shell. Then it
+writes `~/.castkit/installed` and never does any of it again: later runs cost
+one small file read.
+
+Expect the first run to take a minute or two if asciinema and `agg` are not
+already present — both are compiled tools, and on a machine without Homebrew
+`cargo` builds them from source. Every run after that is instant.
 
 **The lock is written last.** If any step fails there is no lock, so the next
 command retries the whole thing rather than leaving you half-installed. It
@@ -231,6 +255,21 @@ config to point it somewhere of ours instead.
   on a fresh install and nowhere else.
 - **Flush before blocking.** `cast play` prints its URL then blocks on the
   server; without an explicit flush, a caller that backgrounds it sees nothing.
+
+## What it puts on your machine
+
+| | |
+|---|---|
+| `~/.castkit/sessions/` | the recordings, and `index.json` holding aliases |
+| `~/.castkit/installed` | the setup lock — delete it to force a re-run |
+| `~/.castkit/agents.json` | which commands are enrolled |
+| `~/.local/bin/cast` | symlink to the checkout |
+| `~/.claude/skills/cast` | symlink to `skills/cast` in the checkout |
+| `~/.config/asciinema/config.toml` | written only if you had none |
+| your shell rc | one marked block of wrapper functions |
+
+Both symlinks point into the checkout, so the repo is not disposable after
+install — move it and the next command repairs them.
 
 ## Recordings contain everything
 

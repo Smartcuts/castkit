@@ -25,15 +25,25 @@ cast share <id|alias> [alias]  attach an alias, stage a folder in ~/Downloads
 
 ## Setup is automatic — never ask about it
 
-There is no install step. The first command installs everything — asciinema,
-agg, the vendored player, the marker-key config, the PATH link, and the shell
-wrappers — then records it in `~/.castkit/installed` and never repeats it.
-Later runs read that one file and get on with it.
+There is no install step, because **installing is what the first command
+does**. Every subcommand calls setup before it runs; on the first one that
+means installing asciinema and agg, vendoring the player, writing the
+marker-key config, linking `cast` into `~/.local/bin` and this skill into
+`~/.claude/skills`, and wrapping the enrolled commands in the user's shell.
+It then writes `~/.castkit/installed` and never repeats any of it — later runs
+read that one file and get on with it.
 
-So just run the command. Do not check dependencies, do not offer to install
-anything, do not ask which options the user wants. If the first run prints a
-few setup lines, that is expected; mention only that a new shell is needed for
-the wrappers to take effect.
+So just run the command you actually wanted. Do not check dependencies, do not
+offer to install anything, do not ask which options the user wants.
+
+**The first run on a fresh machine can take a minute or two** — asciinema and
+agg are compiled tools, and without Homebrew `cargo` builds them from source.
+That is setup working, not a hang: let it finish rather than interrupting or
+retrying. It prints a line per step. Afterwards, tell the user a new shell is
+needed for the wrappers to take effect.
+
+If setup fails part-way it writes no lock, so simply running the command again
+retries the whole thing. Nothing needs to be cleaned up first.
 
 Asking about **content** is different, and expected: an alias or a title is
 something only the user knows. Ask for those. Never ask about dependencies,
