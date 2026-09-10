@@ -1,107 +1,90 @@
 # cast-kit
 
-Record a terminal session, watch it back with real playback controls, and hand
-it to someone — without any of it touching a third-party service.
+Record a terminal session, play it back with real controls, and hand it to
+someone — without any of it touching a third-party service.
 
 Built around [asciinema](https://asciinema.org), which records the terminal as
 text rather than pixels: a session is a small, greppable JSON file whose text
 stays selectable on playback.
 
-## Use it
+## One command, four verbs
 
 ```bash
-cast-rec      # record the agent — start sessions with this instead of `claude`
-cast-view     # watch the most recent recording
-cast-share    # bundle the most recent recording into one shareable .html
+cast rec [-t "title"]           # start recording — `claude` unless told otherwise
+cast play <id|alias>            # play in the web player
+cast list                       # recent recordings
+cast share <id|alias> [alias]   # stage a folder in ~/Downloads for sending
 ```
 
-That is the whole interface. No arguments, no flags, no setup step.
+They are subcommands rather than four binaries because bare `play` and `list`
+would collide with things already on PATH.
 
-## Nothing has to be run first
+## There is no install step
 
-Every command runs `install --ensure` on startup. It is silent when there is
-nothing to do, and otherwise installs asciinema, vendors the player, writes the
-marker-key config, links the commands into `~/.local/bin` and installs the
-`/cast` skill. So the first `cast-rec` on a new machine sets the machine up.
+Every subcommand installs what it needs and then says nothing about it:
+asciinema, `agg` for the gif, the vendored player, the marker-key config, and
+the `cast` link in `~/.local/bin`. The first run on a new machine sets the
+machine up; every run after that is silent. From a Claude Code session the
+`/cast` skill does the same, without asking.
 
-`./install` on its own does the same thing and reports what it found. Run it
-by hand only when you want to see the state, or with `--refresh-player` to
-re-vendor at the latest version, or `--marker-key C-g` to bind a different key.
+## `cast rec`
 
-## From inside a Claude Code session: `/cast`
+Wraps a command and records it, printing how to stop before it starts:
+`ctrl+d` ends, `ctrl+\` pauses capture (before you type a password),
+`ctrl+t` drops a marker.
 
-The kit installs a skill. Ask the agent to watch or share a recording and it
-runs these commands for you, setting up dependencies without asking.
+Recordings land in `~/casts` as `<date>-<time>-<slug>.cast`, the slug taken
+from the title. Idle gaps are capped at two seconds, which matters more than
+it sounds: an agent session is mostly waiting on a model, so uncapped the file
+is mostly dead air. `CAST_DIR` moves where they land.
 
-**It cannot start a recording**, and neither can any skill. A recording has to
-wrap the agent from outside — by the time anything runs inside a session, the
-TUI is live and nothing wraps it in a PTY, so shelling out to `asciinema rec`
-would capture a child process rather than the conversation. Start the session
-with `cast-rec` instead. The skill will tell you exactly that, and can check
-`ASCIINEMA_SESSION` to say whether the current session is being captured.
+**Recording has to wrap the agent from outside.** Start sessions with
+`cast rec` instead of `claude`. Nothing running inside a session can record
+that session — by then the TUI is live and nothing wraps it in a PTY.
 
-## Record — `cast-rec`
+## `cast play`
 
-Wraps a command and records it. With no arguments it records `claude`.
+Takes a recording id, an alias, or a path — a selector is required, since
+playing "whatever was most recent" is rarely what is meant. A leading fragment
+of an id works when it is unambiguous, and an ambiguous one says so.
 
-```bash
-cast-rec                          # the agent
-cast-rec -t "fixing the parser"   # titled; the title also names the file
-cast-rec -- npm test              # anything else
-```
-
-Recordings land in `~/casts` as `<date>-<slug>.cast`; `CAST_DIR` moves that.
-Idle gaps are capped at two seconds, which matters more than it sounds: an
-agent session is mostly waiting on a model, and uncapped the file is mostly
-dead air. `-i` changes the cap, `-s 100x30` forces a recording size.
-
-While recording: `ctrl+d` ends, `ctrl+\` pauses capture (useful before you
-type a password), `ctrl+t` drops a marker.
-
-## Watch — `cast-view`
-
-Serves the player on a free loopback port and opens it. Pass a path to watch
-something other than the newest recording. What you get over `asciinema play`,
-which has none of it:
-
-**In the header** — controls the player itself does not provide:
+Serves the vendored player on a free loopback port. What you get over
+`asciinema play`, which has none of it:
 
 - **speed** — `0.5×` `1×` `1.5×` `2×` `4×`, switchable mid-playback
 - **dead air** — cap idle gaps at 2s, toggled while watching
+- a progress bar you can click, `←`/`→` to seek, `0`–`9` to jump by percent,
+  `.` to step a frame while paused, `f` for fullscreen
 
-**In the player's control bar:**
+## `cast list`
 
-| | |
-|---|---|
-| `space` | pause / resume |
-| `←` `→` | seek 5s |
-| `0`–`9` | jump to 0%–90% |
-| `.` | step forward one frame (while paused) |
-| `f` | fullscreen |
+```
+Datetime          Alias              Length  Shared
+----------------  -----------------  ------  ----------------
+2026-09-10 18:15  —                  0:00    —
+2026-09-10 18:14  fixing-the-parser  0:03    2026-09-10 18:16
+```
 
-Starting state comes from the URL: `?speed=2`, `?idle=2`, `?autoplay=1`.
+Aliases and share dates live in `~/casts/index.json`.
 
-## Share — `cast-share`
+## `cast share`
 
-Writes **one** self-contained `.html` next to the recording — player,
-stylesheet and recording all inlined, around 200 KB. No server, no network, no
-sibling files. Attach it to a message or drop it on any internal static host;
-it opens by double-click. The `file://` fetch restriction does not apply
-because nothing is fetched.
+Attaches an alias to the recording and writes `~/Downloads/<alias>/`:
 
-The shared page keeps the same speed and dead-air controls, because
-`cast-share` builds it out of `player.html` rather than a second copy of the UI.
+- `<alias>.cast` — **the artifact.** Attach this. It is the native format,
+  it is tiny, and anyone with asciinema can play it.
+- `<alias>.gif` — a preview, for pasting where an animation renders inline:
+  a PR description, an issue, a Slack message.
 
-Two lighter options: send the `.cast` itself and let the other person run
-`asciinema play`, or point them at a `.cast` on an internal host.
+Given no alias it reuses the one already attached, or derives one from the
+recording's title.
 
 ## Why there is no asciinema-server here
 
 Two different things share the name. **asciinema-player** is a static JS
 library — that is what `vendor/` holds, and it is all playback needs.
-**asciinema-server** is the sharing app: accounts, uploads, a browsable
-library, permalinks. Stand one up if you want `asciinema upload` and shared
-links; nothing here requires it.
+**asciinema-server** is the sharing app: accounts, uploads, permalinks. Stand
+one up if you want those; nothing here requires it.
 
 The only thing that would send a recording off this machine is
 `asciinema upload`, which defaults to asciinema.org. Set `server.url` in the
@@ -109,27 +92,27 @@ config to point it somewhere of ours instead.
 
 ## Traps worth knowing
 
+- **v3 event times are deltas, not absolutes.** The length of a recording is
+  their sum. Taking the last or largest gives the longest single gap — for a
+  six-second recording, 1.04s instead of 6.17s.
 - **A marker key is swallowed.** asciinema intercepts it, so the recorded
   program never sees it. The syntax is `"C-t"`; `"ctrl+t"` is rejected.
-- **Scripts must resolve through their symlink.** They are linked into
-  `~/.local/bin`, so `dirname "$0"` gives the link's directory, not the kit —
-  hence `readlink -f` in bash and `os.path.realpath` in Python. Get this wrong
-  and every command breaks under its bare name while still working as `./cmd`.
+- **`cast` must resolve through its symlink.** It is linked into
+  `~/.local/bin`, so `os.path.abspath(__file__)` would give the link's
+  directory and the player files would not be found. Hence `realpath`.
 - **The viewer layout is load-bearing.** `main` is `flex: 1` with
   `min-height: 0` and the player uses `fit: "both"`. Under `fit: "width"` an
   80×24 terminal scales to fill the page, the player grows taller than the
   viewport, and its control bar ends up below the fold — in the DOM, invisible.
 - **The player has no speed setter.** Its API is play/pause/seek/dispose. Each
-  speed change rebuilds the player at the current position; reuse `mount()` if
-  you add another option that cannot change live.
-- **`--bind 127.0.0.1` is deliberate.** `python3 -m http.server` defaults to
+  speed change rebuilds the player at the current position.
+- **`--bind 127.0.0.1` is deliberate.** Python's http.server defaults to
   `0.0.0.0`, which would serve recordings to the whole network.
-- **Format.** asciinema 3.x writes asciicast v3; the vendored player reads v1,
-  v2 and v3, so no conversion is needed.
+- **Flush before blocking.** `cast play` prints its URL then blocks on the
+  server; without an explicit flush, a caller that backgrounds it sees nothing.
 
 ## Recordings contain everything
 
-A `.cast` — and any `.html` built from one — is cleartext JSON of every
-character that was on screen: keys, tokens printed in an error, the lot. Treat
-one like a document containing our source code, because it is one. Read it
-before sending it anywhere.
+A `.cast`, and the `.gif` rendered from it, hold every character that was on
+screen: keys, tokens printed in an error, the lot. Treat one like a document
+containing our source code, because it is one. Read it before sending it.

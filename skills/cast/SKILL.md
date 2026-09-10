@@ -1,11 +1,11 @@
 ---
 name: cast
 description: |
-  Record, watch and share a terminal session as an asciinema cast, using the
-  local cast-kit — no third-party service. Use when asked to record a session,
-  set up session recording, watch or replay a recording, or share an agent
-  session with someone. Also covers installing asciinema and the player, which
-  it does automatically without asking.
+  Record, play, list and share terminal sessions as asciinema casts, using the
+  local cast-kit — nothing is uploaded to a third-party service. Use when asked
+  to record a session, replay or watch a recording, list recordings, or share
+  an agent session with someone. Dependencies install themselves; never ask the
+  user about setup.
 allowed-tools:
   - Bash
   - Read
@@ -13,73 +13,65 @@ allowed-tools:
 
 # cast
 
-Three commands, all of which take no arguments in the normal case. Run them;
-do not ask the user to choose anything.
-
 ```bash
-cast-rec      # record the agent — the user runs this, not you (see below)
-cast-view     # watch the most recent recording
-cast-share    # bundle the most recent recording into one shareable .html
+cast rec [-t "title"]          start recording (records `claude` by default)
+cast play <id|alias>           play in the web player — a selector is required
+cast list                      recent recordings: Datetime | Alias | Length | Shared
+cast share <id|alias> [alias]  attach an alias, stage a folder in ~/Downloads
 ```
 
-## Setup is automatic — never ask
+## Setup is automatic — never ask about it
 
-Every command runs `install --ensure` itself, which installs asciinema,
-vendors the player, writes the marker-key config and links the commands onto
-PATH. It is silent when there is nothing to do. So: just run the command. Do
-not check dependencies first, do not offer to install anything, and do not ask
-which options the user wants.
+There is no install step. Every subcommand installs what it needs first
+(asciinema, agg for the gif, the vendored player, the marker-key config, the
+PATH link) and is silent when everything is already there. So just run the
+command. Do not check dependencies, do not offer to install anything, do not
+ask which options the user wants.
 
-If a command is not on PATH, the kit has not been installed yet. Locate it and
-run the installer once:
-
-```bash
-kit=$(cd "$(dirname "$(readlink -f ~/.claude/skills/cast)")/.." && pwd)
-"$kit/install"
-```
-
-## Recording cannot be started from in here
-
-A session recording has to wrap the agent from outside. By the time you are
-running, the TUI is already live and nothing wraps it in a PTY — shelling out
-to `asciinema rec` would record a child process, not this conversation.
-
-So when asked to record a session, do not try. Tell the user to start their
-next session with `cast-rec` instead of `claude`, and offer the title form:
+If `cast` is not yet on PATH, run it once by path — that run creates the link:
 
 ```bash
-cast-rec -t "what this session is about"
+"$(dirname "$(readlink -f ~/.claude/skills/cast)")/../cast" list
 ```
 
-To check whether the *current* session is being recorded, look for the
-variable asciinema sets inside a recorded session:
+## You cannot start a recording from in here
+
+A recording has to wrap the agent from outside. By the time you are running,
+the TUI is live and nothing wraps it in a PTY — shelling out to asciinema
+would capture a child process, not this conversation.
+
+So when asked to record, do not try. Tell the user to start their next session
+with `cast rec` instead of `claude`, optionally `cast rec -t "what it is about"`.
+
+To answer whether the *current* session is being recorded:
 
 ```bash
 echo "${ASCIINEMA_SESSION:-not recorded}"
 ```
 
-If it is set, the session is being captured and `cast-share` will be able to
-bundle it once the session ends. If it is not, say so plainly rather than
-implying the conversation is being saved.
+Set means it is being captured. Unset means it is not — say so plainly rather
+than letting the user assume the conversation is being saved.
+
+## Playing
+
+`cast play` needs a selector: a recording id, an alias, or a path. Run
+`cast list` first and use an id from the Datetime column's recording, or an
+alias. A leading fragment of an id is enough when it is unambiguous.
+
+It serves a local page and blocks until ctrl+c, so run it in the background or
+hand the command to the user rather than hanging the turn.
 
 ## Sharing
 
-`cast-share` with no arguments bundles the most recent recording into a single
-self-contained `.html` — player, stylesheet and recording inlined, no server
-and no network needed. Run it, then give the user the path it prints. Use
-SendUserFile to hand over the file when that tool is available.
+`cast share <id> <alias>` attaches the alias, and writes
+`~/Downloads/<alias>/` holding `<alias>.cast` and `<alias>.gif`. The `.cast` is
+the artifact to attach; the `.gif` is the preview to paste inline where it will
+render. Give the user the folder path when it finishes.
 
-Say once, plainly, that the bundle contains everything that was on screen in
-cleartext, so it should be read before being sent anywhere.
-
-## Watching
-
-`cast-view` serves the most recent recording on loopback and opens a browser.
-It blocks until stopped with ctrl+c, so run it in the background or tell the
-user to run it themselves rather than hanging the turn.
+Say once, plainly, that both files hold everything that was on screen in
+cleartext, so they should be read before being sent.
 
 ## Recordings live in `~/casts`
 
-Named `<date>-<slug>.cast`. `CAST_DIR` moves that. To act on a specific
-recording rather than the newest, pass its path:
-`cast-view <file>`, `cast-share <file>`.
+Named `<date>-<time>-<slug>.cast`, with aliases and share dates in
+`~/casts/index.json`. `CAST_DIR` moves the lot.

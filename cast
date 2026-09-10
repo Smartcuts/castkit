@@ -1,0 +1,363 @@
+#!/usr/bin/env python3
+"""cast — record, play, list and share terminal sessions.
+
+    cast rec [-t title]        start recording (records `claude` by default)
+    cast play <id|path>        play a recording in the web player
+    cast list                  recent recordings
+    cast share <id|path> [alias]
+                               attach an alias and drop a folder in ~/Downloads
+                               holding the .cast and a .gif preview
+
+Setup happens by itself. There is no install step: every subcommand makes
+sure asciinema, the player and the config are in place before it runs, and
+says nothing when they already are.
+"""
+import argparse, glob, json, os, shutil, socket, subprocess, sys, time
+from datetime import datetime
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+CAST_DIR = os.environ.get("CAST_DIR", os.path.expanduser("~/casts"))
+INDEX = os.path.join(CAST_DIR, "index.json")
+CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME",
+                                     os.path.expanduser("~/.config")),
+                      "asciinema", "config.toml")
+BINDIR = os.path.expanduser("~/.local/bin")
+SKILL_LINK = os.path.expanduser("~/.claude/skills/cast")
+MARKER_KEY = "C-t"
+
+
+# ----------------------------------------------------------------- setup
+
+def have(prog):
+    return shutil.which(prog) is not None
+
+
+def say(msg):
+    print(f"  \033[33m·\033[0m {msg}", file=sys.stderr)
+
+
+def ensure(gif=False):
+    """Install whatever is missing. Silent when there is nothing to do."""
+    if not have("asciinema"):
+        say("installing asciinema")
+        if have("brew"):
+            subprocess.run(["brew", "install", "asciinema"], check=True)
+        elif have("cargo"):
+            subprocess.run(["cargo", "install", "--locked", "asciinema"], check=True)
+        else:
+            sys.exit("cast: need homebrew or cargo to install asciinema")
+
+    if gif and not have("agg"):
+        say("installing agg (renders the gif preview)")
+        if have("brew"):
+            subprocess.run(["brew", "install", "agg"], check=True)
+        else:
+            sys.exit("cast: need homebrew to install agg, or install it from\n"
+                     "  https://github.com/asciinema/agg")
+
+    if not os.path.exists(os.path.join(HERE, "vendor", "asciinema-player.min.js")):
+        say("vendoring the player")
+        vendor_player()
+
+    if not os.path.exists(CONFIG):
+        say(f"writing {CONFIG}")
+        os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
+        with open(CONFIG, "w") as fh:
+            fh.write('[session]\n'
+                     '# asciinema swallows this key: the recorded program never\n'
+                     '# sees it. The form is "C-t"; "ctrl+t" is rejected.\n'
+                     f'add_marker_key = "{MARKER_KEY}"\n\n'
+                     '[playback]\nspeed = 1.0\n')
+
+    link(os.path.join(HERE, "cast"), os.path.join(BINDIR, "cast"))
+    link(os.path.join(HERE, "skills", "cast"), SKILL_LINK)
+
+
+def link(target, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.islink(path):
+        if os.readlink(path) == target:
+            return
+    elif os.path.exists(path):
+        return                      # something of the user's; leave it alone
+    say(f"linking {path}")
+    if os.path.islink(path):
+        os.unlink(path)
+    os.symlink(target, path)
+
+
+def vendor_player():
+    if not have("npm"):
+        sys.exit("cast: npm is needed to fetch the player; install node")
+    tmp = os.path.join(HERE, ".vendor-tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
+    os.makedirs(tmp)
+    try:
+        subprocess.run(["npm", "pack", "asciinema-player", "--silent"],
+                       cwd=tmp, check=True, stdout=subprocess.DEVNULL)
+        tgz = glob.glob(os.path.join(tmp, "asciinema-player-*.tgz"))[0]
+        subprocess.run(["tar", "xzf", tgz], cwd=tmp, check=True)
+        pkg = os.path.join(tmp, "package")
+        dest = os.path.join(HERE, "vendor")
+        os.makedirs(dest, exist_ok=True)
+        for f in ("asciinema-player.min.js", "asciinema-player.css"):
+            shutil.copy(os.path.join(pkg, "dist", "bundle", f), dest)
+        shutil.copy(os.path.join(pkg, "LICENSE"),
+                    os.path.join(dest, "LICENSE.asciinema-player"))
+        with open(os.path.join(pkg, "package.json")) as fh:
+            version = json.load(fh)["version"]
+        with open(os.path.join(dest, "VERSION"), "w") as fh:
+            fh.write(version + "\n")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ------------------------------------------------------------- recordings
+
+def load_index():
+    try:
+        with open(INDEX) as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def save_index(ix):
+    os.makedirs(CAST_DIR, exist_ok=True)
+    with open(INDEX, "w") as fh:
+        json.dump(ix, fh, indent=2, sort_keys=True)
+
+
+def cast_id(path):
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def recordings():
+    files = glob.glob(os.path.join(CAST_DIR, "*.cast"))
+    return sorted(files, key=os.path.getmtime, reverse=True)
+
+
+def header_and_events(path):
+    with open(path) as fh:
+        rows = [json.loads(l) for l in fh if l.strip()]
+    return rows[0], rows[1:]
+
+
+def duration(path):
+    """asciicast v3 stores per-event deltas, so the length is their sum.
+    v2 stores absolute times, where the last one is the length."""
+    try:
+        hdr, ev = header_and_events(path)
+    except (OSError, ValueError, IndexError):
+        return None
+    if not ev:
+        return 0.0
+    times = [e[0] for e in ev if isinstance(e, list) and e]
+    if not times:
+        return 0.0
+    return sum(times) if hdr.get("version", 3) >= 3 else times[-1]
+
+
+def recorded_at(path):
+    try:
+        hdr, _ = header_and_events(path)
+        if hdr.get("timestamp"):
+            return datetime.fromtimestamp(hdr["timestamp"])
+    except (OSError, ValueError, IndexError):
+        pass
+    return datetime.fromtimestamp(os.path.getmtime(path))
+
+
+def hhmm(seconds):
+    if seconds is None:
+        return "?"
+    m, s = divmod(int(round(seconds)), 60)
+    return f"{m}:{s:02d}" if m < 60 else f"{m // 60}:{m % 60:02d}:{s:02d}"
+
+
+def resolve(selector):
+    """A path, a recording id (or its leading datetime), or a shared alias."""
+    if os.path.isfile(selector):
+        return os.path.abspath(selector)
+    ix = load_index()
+    for cid, meta in ix.items():
+        if meta.get("alias") == selector:
+            hit = os.path.join(CAST_DIR, cid + ".cast")
+            if os.path.isfile(hit):
+                return hit
+    hits = [p for p in recordings() if cast_id(p).startswith(selector)]
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1:
+        sys.exit(f"cast: '{selector}' matches {len(hits)} recordings — "
+                 "use a longer id, or `cast list`")
+    sys.exit(f"cast: no recording matches '{selector}' — try `cast list`")
+
+
+# ------------------------------------------------------------- subcommands
+
+def cmd_rec(a):
+    ensure()
+    # argparse.REMAINDER keeps the -- separator; it is not the command.
+    cmd = list(a.command)
+    if cmd and cmd[0] == "--":
+        cmd = cmd[1:]
+    cmd = cmd or ["claude"]
+    if not have(cmd[0]):
+        sys.exit(f"cast: {cmd[0]} not found")
+
+    slug = "".join(c if c.isalnum() else "-"
+                   for c in (a.title or cmd[0]).lower()).strip("-")[:40]
+    slug = "-".join(f for f in slug.split("-") if f) or "session"
+    os.makedirs(CAST_DIR, exist_ok=True)
+    out = os.path.join(CAST_DIR,
+                       f"{time.strftime('%Y%m%d-%H%M%S')}-{slug}.cast")
+
+    args = ["asciinema", "rec", "--idle-time-limit", str(a.idle)]
+    if a.title:
+        args += ["--title", a.title]
+    args += ["-c", " ".join(_q(c) for c in cmd), out]
+
+    print(f"recording {cast_id(out)}")
+    print("  \033[1mctrl+d\033[0m (or type `exit`) ends the recording")
+    print("  ctrl+\\ pauses capture · ctrl+t drops a marker")
+    print("  everything on screen goes into the file, in cleartext\n")
+
+    subprocess.run(args)
+
+    print(f"\nsaved {cast_id(out)}  ({hhmm(duration(out))})")
+    print(f"  cast play {cast_id(out)}")
+    print(f"  cast share {cast_id(out)} <alias>")
+
+
+def _q(s):
+    return "'" + s.replace("'", "'\\''") + "'" if any(
+        c in s for c in " \t\"'$`\\*?()[]{}|&;<>") else s
+
+
+def cmd_play(a):
+    ensure()
+    path = resolve(a.selector)
+    link_path = os.path.join(HERE, "current.cast")
+    if os.path.islink(link_path) or os.path.exists(link_path):
+        os.unlink(link_path)
+    os.symlink(path, link_path)
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    # 127.0.0.1 only: the default 0.0.0.0 would serve the recording to the
+    # whole network, and a recording is cleartext of everything on screen.
+    server = subprocess.Popen(
+        [sys.executable, "-m", "http.server", str(port),
+         "--bind", "127.0.0.1", "--directory", HERE],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    url = f"http://127.0.0.1:{port}/player.html"
+    # flush: stdout is block-buffered when redirected, and this process then
+    # blocks on the server, so the URL would never appear to a caller that
+    # backgrounds us.
+    print(f"playing {cast_id(path)}  ({hhmm(duration(path))})")
+    print(f"  {url}\nctrl+c to stop", flush=True)
+    if not os.environ.get("NO_OPEN") and have("open"):
+        subprocess.run(["open", url])
+    try:
+        server.wait()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.terminate()
+
+
+def cmd_list(a):
+    ensure()
+    casts = recordings()
+    if not casts:
+        print(f"no recordings in {CAST_DIR} — `cast rec` makes one")
+        return
+    ix = load_index()
+    rows = []
+    for p in casts[:a.limit]:
+        meta = ix.get(cast_id(p), {})
+        rows.append((recorded_at(p).strftime("%Y-%m-%d %H:%M"),
+                     meta.get("alias") or "—",
+                     hhmm(duration(p)),
+                     meta.get("shared_at", "—")))
+    head = ("Datetime", "Alias", "Length", "Shared")
+    width = [max(len(r[i]) for r in rows + [head]) for i in range(4)]
+    line = lambda r: "  ".join(v.ljust(width[i]) for i, v in enumerate(r)).rstrip()
+    print(line(head))
+    print("  ".join("-" * w for w in width))
+    for r in rows:
+        print(line(r))
+
+
+def cmd_share(a):
+    ensure(gif=True)
+    path = resolve(a.selector)
+    cid = cast_id(path)
+    ix = load_index()
+
+    alias = a.alias or ix.get(cid, {}).get("alias")
+    if not alias:
+        hdr, _ = header_and_events(path)
+        alias = hdr.get("title") or "-".join(cid.split("-")[2:]) or cid
+    alias = "-".join(f for f in "".join(
+        c if c.isalnum() else "-" for c in alias.lower()).split("-") if f)
+
+    folder = os.path.join(os.path.expanduser("~/Downloads"), alias)
+    os.makedirs(folder, exist_ok=True)
+    shutil.copy(path, os.path.join(folder, alias + ".cast"))
+
+    gif = os.path.join(folder, alias + ".gif")
+    print(f"rendering {alias}.gif …")
+    subprocess.run(["agg", "--idle-time-limit", "1", "--speed", "2",
+                    "--font-size", "14", path, gif], check=True)
+
+    ix.setdefault(cid, {})
+    ix[cid]["alias"] = alias
+    ix[cid]["shared_at"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+    ix[cid]["share_dir"] = folder
+    save_index(ix)
+
+    size = lambda p: f"{os.path.getsize(p) / 1024:.0f} KB"
+    print(f"\n{folder}")
+    print(f"  {alias}.cast   {size(os.path.join(folder, alias + '.cast'))}"
+          f"   the recording — attach this")
+    print(f"  {alias}.gif    {size(gif)}   preview, for pasting inline")
+    print("\nboth hold everything that was on screen, in cleartext.")
+
+
+# ------------------------------------------------------------------ entry
+
+def main():
+    ap = argparse.ArgumentParser(prog="cast", description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("rec", help="start recording")
+    p.add_argument("-t", "--title")
+    p.add_argument("-i", "--idle", type=float, default=2)
+    p.add_argument("command", nargs=argparse.REMAINDER)
+    p.set_defaults(fn=cmd_rec)
+
+    p = sub.add_parser("play", help="play a recording in the web player")
+    p.add_argument("selector", help="recording id, alias, or path")
+    p.set_defaults(fn=cmd_play)
+
+    p = sub.add_parser("list", help="recent recordings")
+    p.add_argument("-n", "--limit", type=int, default=20)
+    p.set_defaults(fn=cmd_list)
+
+    p = sub.add_parser("share", help="attach an alias and stage for sending")
+    p.add_argument("selector", help="recording id, alias, or path")
+    p.add_argument("alias", nargs="?")
+    p.set_defaults(fn=cmd_share)
+
+    a = ap.parse_args()
+    a.fn(a)
+
+
+if __name__ == "__main__":
+    main()
