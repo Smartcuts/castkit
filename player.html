@@ -1,0 +1,92 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>cast viewer</title>
+<link rel="stylesheet" href="vendor/asciinema-player.css">
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; height: 100vh; display: flex; flex-direction: column;
+         background: #121314; color: #cdd0d3;
+         font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  header { flex: 0 0 auto; padding: 9px 14px; border-bottom: 1px solid #2a2c2e;
+           display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  header b { color: #f0f2f4; font-weight: 600; }
+  .grp { display: flex; gap: 6px; align-items: center; }
+  .grp > i { font-style: normal; color: #7d8286; }
+  button { font: inherit; color: #cdd0d3; background: #1e2022;
+           border: 1px solid #34373a; border-radius: 4px; padding: 2px 8px;
+           cursor: pointer; }
+  button:hover { background: #26292b; }
+  button[aria-pressed="true"] { background: #3b6ea5; border-color: #3b6ea5;
+                                color: #fff; }
+  .hint { color: #6b7074; margin-left: auto; }
+  /* main must be allowed to shrink, or the player overflows the viewport and
+     takes its control bar below the fold. */
+  main { flex: 1 1 auto; min-height: 0; padding: 12px; }
+  #player { height: 100%; }
+  .err { padding: 16px; color: #ff8a80; white-space: pre-wrap; line-height: 1.5; }
+</style>
+
+<header>
+  <b id="name">—</b>
+  <span class="grp"><i>speed</i><span id="speeds"></span></span>
+  <span class="grp"><i>dead air</i><button id="idle"></button></span>
+  <span class="hint">space pause · ← → seek · 0–9 jump · f fullscreen · . step</span>
+</header>
+<main><div id="player"></div></main>
+
+<script src="vendor/asciinema-player.min.js"></script>
+<script>
+  const q = new URLSearchParams(location.search);
+  const cast = q.get('cast') || 'current.cast';
+  const SPEEDS = [0.5, 1, 1.5, 2, 4];
+
+  let speed = parseFloat(q.get('speed') || '1');
+  let idle = q.get('idle') ? parseFloat(q.get('idle')) : null;
+  let playing = q.get('autoplay') === '1';
+  let player = null, at = 0;
+
+  document.getElementById('name').textContent = cast;
+
+  // The player exposes no speed setter (its API is play/pause/seek/dispose
+  // only), so changing speed means rebuilding it at the current position.
+  function mount() {
+    if (player) {
+      try { at = player.getCurrentTime() || 0; } catch (e) { at = 0; }
+      player.dispose();
+    }
+    const el = document.getElementById('player');
+    el.innerHTML = '';
+    const opts = { controls: true, fit: 'both', speed,
+                   startAt: at, autoPlay: playing };
+    if (idle) opts.idleTimeLimit = idle;
+    player = AsciinemaPlayer.create(cast, el, opts);
+    player.addEventListener('play', () => { playing = true; });
+    player.addEventListener('pause', () => { playing = false; });
+    player.addEventListener('ended', () => { playing = false; at = 0; });
+    paint();
+  }
+
+  function paint() {
+    document.getElementById('speeds').replaceChildren(...SPEEDS.map(s => {
+      const b = document.createElement('button');
+      b.textContent = s + '×';
+      b.setAttribute('aria-pressed', String(s === speed));
+      b.onclick = () => { speed = s; mount(); };
+      return b;
+    }));
+    const i = document.getElementById('idle');
+    i.textContent = idle ? `capped at ${idle}s` : 'full length';
+    i.setAttribute('aria-pressed', String(!!idle));
+    i.onclick = () => { idle = idle ? null : 2; mount(); };
+  }
+
+  // Fetch first: a missing cast otherwise leaves a silently blank player.
+  fetch(cast, { method: 'HEAD' })
+    .then(r => { if (!r.ok) throw new Error(r.status + ' ' + r.statusText); mount(); })
+    .catch(e => {
+      document.querySelector('main').innerHTML =
+        '<div class="err">could not load <b>' + cast + '</b>\n' + e +
+        '\n\nServe this directory and pass a cast that lives in it:\n' +
+        '  ./cast-view path/to/recording.cast</div>';
+    });
+</script>
