@@ -92,7 +92,7 @@ those was not recorded, that is why — it is protection, not a gap.
 ## Listing
 
 `cast list` opens a browser at a terminal and prints a plain table
-`Datetime | Agent | Alias | Length | Shared` everywhere else — which is what
+`Datetime | Agent | Alias | Length | Size | Shared` everywhere else — which is what
 you will get, since you have no terminal. It ends with a storage summary. Run
 it
 whenever the user refers to a recording vaguely — "the one from this morning",

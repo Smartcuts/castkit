@@ -96,17 +96,17 @@ To list out all recordings, use the `list` subcommand:
 > cast list
 
 castkit — 10 recordings · 5.7 MB · claude 5.3 MB, codex 379.9 KB
-Datetime          Agent   Alias                Length  Shared
-2026-09-10 22:20  claude  —                    52:21   —
-2026-09-10 22:21  codex   —                    0:17    —
-2026-09-10 20:08  claude  claude               4:22    2026-09-10 20:11
-2026-09-10 19:38  claude  —                    0:36    —
-2026-09-10 19:38  codex   —                    0:15    —
-2026-09-10 19:13  claude  —                    3:58    —
-2026-09-10 19:06  claude  —                    2:15    —
-2026-09-10 19:05  codex   castkit-walkthrough  2:01    2026-09-10 20:07
-2026-09-10 18:54  codex   —                    0:00    —
-2026-09-10 18:52  codex   —                    0:18    —
+Datetime          Agent   Alias                Length      Size  Shared
+2026-09-10 22:20  claude  —                     52:21    4.2 MB  —
+2026-09-10 22:21  codex   —                      0:17   36.5 KB  —
+2026-09-10 20:08  claude  claude                 4:22  414.3 KB  2026-09-10 20:11
+2026-09-10 19:38  claude  —                      0:36   93.5 KB  —
+2026-09-10 19:38  codex   —                      0:15   48.7 KB  —
+2026-09-10 19:13  claude  —                      3:58  464.3 KB  —
+2026-09-10 19:06  claude  —                      2:15  126.5 KB  —
+2026-09-10 19:05  codex   castkit-walkthrough    2:01  282.1 KB  2026-09-10 20:07
+2026-09-10 18:54  codex   —                      0:00     818 B  —
+2026-09-10 18:52  codex   —                      0:18   11.8 KB  —
 ```
 
 <kbd>enter</kbd> plays the highlighted recording, <kbd>s</kbd>

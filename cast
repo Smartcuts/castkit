@@ -447,17 +447,23 @@ def prune_index(ids):
         save_index(ix)
 
 
-HEAD = ("Datetime", "Agent", "Alias", "Length", "Shared")
+HEAD = ("Datetime", "Agent", "Alias", "Length", "Size", "Shared")
+NUMERIC = {"Length", "Size"}        # right-aligned, so the units line up
 
 
 def as_cells(r):
-    return (r["when"].strftime("%Y-%m-%d %H:%M"), r["agent"],
-            r["alias"], r["length"], r["shared"])
+    return (r["when"].strftime("%Y-%m-%d %H:%M"), r["agent"], r["alias"],
+            r["length"], human(r["size"]), r["shared"])
 
 
 def widths(rows):
     cells = [as_cells(r) for r in rows] + [HEAD]
     return [max(len(c[i]) for c in cells) for i in range(len(HEAD))]
+
+
+def row_text(cells, w):
+    return "  ".join(v.rjust(w[i]) if HEAD[i] in NUMERIC else v.ljust(w[i])
+                     for i, v in enumerate(cells)).rstrip()
 
 
 def agent_of(path):
@@ -646,11 +652,10 @@ def cmd_list(a):
         return
 
     w = widths(rows)
-    line = lambda c: "  ".join(v.ljust(w[i]) for i, v in enumerate(c)).rstrip()
-    print(line(HEAD))
+    print(row_text(HEAD, w))
     print("  ".join("-" * n for n in w))
     for r in rows:
-        print(line(as_cells(r)))
+        print(row_text(as_cells(r), w))
     print(f"\n{storage_line()}")
 
 
@@ -663,15 +668,13 @@ def run_tui(rows):
         stdscr.erase()
         h, wd = stdscr.getmaxyx()
         w = widths(rows)
-        head = "  ".join(v.ljust(w[i]) for i, v in enumerate(HEAD))
         stdscr.addnstr(0, 0, f"castkit — {storage_line().splitlines()[0]}",
                        wd - 1, curses.A_BOLD)
-        stdscr.addnstr(1, 0, head, wd - 1, curses.A_DIM)
+        stdscr.addnstr(1, 0, row_text(HEAD, w), wd - 1, curses.A_DIM)
         view = max(1, h - 4)
         top = min(max(0, sel - view + 1), max(0, len(rows) - view))
         for n, r in enumerate(rows[top:top + view]):
-            cells = "  ".join(v.ljust(w[i]) for i, v in enumerate(as_cells(r)))
-            stdscr.addnstr(2 + n, 0, cells, wd - 1,
+            stdscr.addnstr(2 + n, 0, row_text(as_cells(r), w), wd - 1,
                            curses.A_REVERSE if top + n == sel else curses.A_NORMAL)
         stdscr.addnstr(h - 1, 0,
                        msg or "↑↓ move · enter play · s share · d delete · q quit",
