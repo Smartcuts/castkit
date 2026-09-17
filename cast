@@ -58,6 +58,11 @@ NON_SESSION_SUBCOMMANDS = {
               "mcp-server", "migrate-rollouts", "plugin", "queue",
               "remote-control", "sandbox", "unarchive", "update"},
 }
+# Codex 0.154 paints a decorative starfield over the composer at seven frames
+# a second for as long as the session is open, whether or not anyone is there:
+# 30-80 MB of recording an hour, 800 MB for a session left open overnight.
+# tui.whimsy is that effect alone; the working spinner stays.
+RECORD_ARGS = {"codex": ["-c", "tui.whimsy=false"]}
 # Bump when a setup step changes. The lock is invalidated by this and by
 # the kit moving, and by nothing else — an unbumped change is invisible to
 # every machine already installed, including your own.
@@ -569,7 +574,8 @@ def cmd_rec(a):
     args = ["asciinema", "rec", "--idle-time-limit", str(a.idle)]
     if a.title:
         args += ["--title", a.title]
-    args += ["-c", " ".join(_q(c) for c in [real] + cmd[1:]), out]
+    full = [real] + RECORD_ARGS.get(agent, []) + cmd[1:]
+    args += ["-c", " ".join(_q(c) for c in full), out]
 
     print(f"recording {cast_id(out)}")
     print("  \033[1mctrl+d\033[0m (or type `exit`) ends the recording")

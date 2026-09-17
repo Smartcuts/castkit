@@ -206,6 +206,14 @@ picks a branch or tag.
   once took twenty seconds to draw thirty rows. So a recording is measured
   once, and the answer kept in the index against the file's size, which only
   changes while it is still being written.
+- **Codex 0.154 never stops painting.** It draws a starfield over the composer
+  at seven frames a second for as long as the session is open, whether or not
+  anyone is there — 30–80 MB of recording an hour, 800 MB for a session left
+  open overnight, against a megabyte an hour for claude. An idle-time limit
+  is no help: the screen is never idle. So a codex session is recorded with
+  `-c tui.whimsy=false`, which is that effect alone; the working spinner stays.
+  It is also why an asciicast of an agent session can be enormous while
+  showing almost nothing.
 - **A marker key is swallowed.** asciinema intercepts it, so the recorded
   program never sees it. The syntax is `"C-t"`; `"ctrl+t"` is rejected.
 - **`cast` must resolve through its symlink.** It is linked into
