@@ -409,19 +409,28 @@ def storage_line():
 def collect_rows(limit=None):
     """One pass over the recordings; the table and the TUI both render this."""
     ix = load_index()
-    rows = []
+    rows, measured = [], False
     for p in recordings()[:limit]:
-        meta = ix.get(cast_id(p), {})
+        meta = ix.setdefault(cast_id(p), {})
+        size = os.path.getsize(p)
+        # The length is a pass over the whole file — seconds, for a long
+        # session — so it is kept against the size: a finished recording never
+        # changes, and one still being written is measured again.
+        if meta.get("size") != size:
+            meta.update(size=size, length=duration(p))
+            measured = True
         rows.append({
             "path": p,
             "id": cast_id(p),
             "when": recorded_at(p),
             "agent": agent_of(p),
             "alias": meta.get("alias") or "—",
-            "length": hhmm(duration(p)),
+            "length": hhmm(meta["length"]),
             "shared": meta.get("shared_at", "—"),
-            "size": os.path.getsize(p),
+            "size": size,
         })
+    if measured:
+        save_index(ix)
     return rows
 
 
@@ -457,6 +466,11 @@ def recordings():
     return sorted(files, key=os.path.getmtime, reverse=True)
 
 
+def header(path):
+    with open(path) as fh:
+        return json.loads(next(fh))
+
+
 def header_and_events(path):
     with open(path) as fh:
         rows = [json.loads(l) for l in fh if l.strip()]
@@ -465,25 +479,31 @@ def header_and_events(path):
 
 def duration(path):
     """asciicast v3 stores per-event deltas, so the length is their sum.
-    v2 stores absolute times, where the last one is the length."""
+    v2 stores absolute times, where the last one is the length.
+
+    Only the leading number of each event is wanted. Decoding the whole
+    event to get at it costs three times as much, and the events of a long
+    session run to hundreds of megabytes.
+    """
     try:
-        hdr, ev = header_and_events(path)
-    except (OSError, ValueError, IndexError):
+        with open(path) as fh:
+            hdr = json.loads(next(fh))
+            total = last = 0.0
+            for line in fh:
+                if line.startswith("["):
+                    last = float(line[1:line.index(",")])
+                    total += last
+    except (OSError, ValueError, StopIteration):
         return None
-    if not ev:
-        return 0.0
-    times = [e[0] for e in ev if isinstance(e, list) and e]
-    if not times:
-        return 0.0
-    return sum(times) if hdr.get("version", 3) >= 3 else times[-1]
+    return total if hdr.get("version", 3) >= 3 else last
 
 
 def recorded_at(path):
     try:
-        hdr, _ = header_and_events(path)
-        if hdr.get("timestamp"):
-            return datetime.fromtimestamp(hdr["timestamp"])
-    except (OSError, ValueError, IndexError):
+        ts = header(path).get("timestamp")
+        if ts:
+            return datetime.fromtimestamp(ts)
+    except (OSError, ValueError, StopIteration):
         pass
     return datetime.fromtimestamp(os.path.getmtime(path))
 
@@ -767,8 +787,7 @@ def share_path(path, requested_alias=None):
 
     alias = requested_alias or ix.get(cid, {}).get("alias")
     if not alias:
-        hdr, _ = header_and_events(path)
-        alias = hdr.get("title") or "-".join(cid.split("-")[2:]) or cid
+        alias = header(path).get("title") or "-".join(cid.split("-")[2:]) or cid
     alias = slugify(alias, fallback=cid)
 
     # An alias is a selector and a folder name. Letting two recordings share

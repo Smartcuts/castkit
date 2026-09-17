@@ -201,7 +201,11 @@ picks a branch or tag.
   TUI-only `list` would break the path the kit is mostly used through.
 - **v3 event times are deltas, not absolutes.** The length of a recording is
   their sum. Taking the last or largest gives the longest single gap — for a
-  six-second recording, 1.04s instead of 6.17s.
+  six-second recording, 1.04s instead of 6.17s. Their sum is also a pass over
+  the whole file, and a long session runs to hundreds of megabytes — `list`
+  once took twenty seconds to draw thirty rows. So a recording is measured
+  once, and the answer kept in the index against the file's size, which only
+  changes while it is still being written.
 - **A marker key is swallowed.** asciinema intercepts it, so the recorded
   program never sees it. The syntax is `"C-t"`; `"ctrl+t"` is rejected.
 - **`cast` must resolve through its symlink.** It is linked into
